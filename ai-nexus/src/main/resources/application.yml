@@ -106,3 +106,5 @@ server:
   tomcat:
     threads:
       max: 200
+  error:
+    include-stacktrace: never   # 异常堆栈不外泄（安全兜底）

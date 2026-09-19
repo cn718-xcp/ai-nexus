@@ -23,6 +23,13 @@ spring:
           username: ${MILVUS_USER:root}
           password: ${MILVUS_PASSWORD:milvus}
 
+# 生产环境关闭 API 文档，避免接口信息泄露
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
 logging:
   level:
     root: INFO
