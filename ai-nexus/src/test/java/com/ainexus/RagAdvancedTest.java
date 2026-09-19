@@ -53,13 +53,24 @@ class RagAdvancedTest {
         Document dA = new Document("a", "Spring AI framework introduction", java.util.Map.of());
         Document dB = new Document("b", "Spring AI supports RAG", java.util.Map.of());
         Document dC = new Document("c", "Milvus vector database spring milvus", java.util.Map.of());
-        List<Document> fused = hybrid.fuse(List.of(dA, dB, dC), "milvus spring", 1);
+        List<Document> fused = hybrid.fuse(List.of(dA, dB, dC), "milvus spring", 1, 0.0);
 
         assertEquals(3, fused.size());
         // RRF 融合后：dC（字面最强）从 dense 第 3 越过 dB 升至第 2；dA 语义+字面双命中仍居首
         assertEquals("a", fused.get(0).getId());
         assertEquals("c", fused.get(1).getId(), "关键词强命中的片段应经 RRF 融合上升");
         assertEquals("b", fused.get(2).getId());
+    }
+
+    @Test
+    void shouldBoostEarlierChunksWithPositionWeight() {
+        // 相同 RRF 分时，位置权重应偏好 chunk_index 靠前的片段
+        var metaA = new java.util.HashMap<String, Object>(java.util.Map.of("chunk_index", 0));
+        var metaB = new java.util.HashMap<String, Object>(java.util.Map.of("chunk_index", 5));
+        Document dA = new Document("a", "alpha content", metaA);
+        Document dB = new Document("b", "alpha content", metaB);
+        List<Document> fused = hybrid.fuse(List.of(dA, dB), "alpha", 1, 0.5);
+        assertEquals("a", fused.get(0).getId(), "位置权重应提升文档前部片段");
     }
 
     @Test

@@ -28,4 +28,11 @@ public class ChunkReference {
 
     /** 相似度得分（0-1，向量检索返回） */
     private Double score;
+
+    /** 片段在原文中的起始字符偏移 */
+    private Integer startOffset;
+    /** 片段在原文中的结束字符偏移 */
+    private Integer endOffset;
+    /** 片段所属章节标题 */
+    private String section;
 }

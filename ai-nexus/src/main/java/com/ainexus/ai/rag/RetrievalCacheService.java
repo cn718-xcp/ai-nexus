@@ -93,8 +93,10 @@ public class RetrievalCacheService {
         RBucket<String> verBucket = redissonClient.getBucket(RedisKeyConstants.CHAT_CONTEXT + "ragver:"
                 + (kbName == null ? "_all_" : kbName));
         String version = String.valueOf(verBucket.get());
+        // 语义归一化：去空白+小写，提升同义查询的缓存命中率
+        String normalized = query == null ? "" : query.replaceAll("\s+", "").toLowerCase();
         return RedisKeyConstants.CHAT_CONTEXT + "ragcache:" + version + ":"
-                + (kbName == null ? "_all_" : kbName) + ":" + topK + ":" + DigestUtil.md5Hex(query);
+                + (kbName == null ? "_all_" : kbName) + ":" + topK + ":" + DigestUtil.md5Hex(normalized);
     }
 
     /** 缓存序列化载体 */

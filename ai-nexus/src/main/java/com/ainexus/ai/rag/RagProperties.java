@@ -23,4 +23,23 @@ public class RagProperties {
 
     /** RRF 融合常数（越大，排名差异对融合分影响越平缓） */
     private int rrfK = 60;
+
+    /** 位置权重：融合打分中片段位置因子的权重（0=关闭，默认关闭保持原排序） */
+    private double positionWeight = 0.0;
+
+    // ---------------- 分块策略 ----------------
+    /** 分块策略：fixed-固定长度 | parent_child-父子分块 | semantic-语义分块 | auto-超长文档自动父子 */
+    private String chunkStrategy = "fixed";
+    /** auto 模式下启用父子分块的文档字符数阈值 */
+    private int autoParentChildChars = 20000;
+    /** 父块大小（字符） */
+    private int parentSize = 1600;
+    /** 子块大小（字符） */
+    private int childSize = 400;
+    /** 语义分块：相邻句余弦相似度低于该阈值处断开 */
+    private double semanticThreshold = 0.6;
+    /** 语义分块单块最大字符数 */
+    private int semanticMaxChars = 800;
+    /** 引用高亮标记开关（答案中标注来源序号） */
+    private boolean citationMarkers = false;
 }

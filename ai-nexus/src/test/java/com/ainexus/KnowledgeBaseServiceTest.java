@@ -59,14 +59,14 @@ class KnowledgeBaseServiceTest {
     private com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
 
     @Mock
-    private com.ainexus.service.KnowledgeBackupService backupService;
+    private com.ainexus.ai.rag.DocumentIngestor documentIngestor;
 
     private KnowledgeBaseService service;
 
     @BeforeEach
     void setUp() throws InterruptedException {
         service = new KnowledgeBaseService(kbRepository, docRepository, vectorStore, retrievalCache,
-                redissonClient, metrics, tenantQuotaService, backupService);
+                redissonClient, metrics, tenantQuotaService, documentIngestor);
         // 分布式锁：单测环境直接放行
         org.redisson.api.RLock lock = org.mockito.Mockito.mock(org.redisson.api.RLock.class);
         org.mockito.Mockito.when(redissonClient.getLock(org.mockito.ArgumentMatchers.anyString())).thenReturn(lock);
@@ -97,26 +97,21 @@ class KnowledgeBaseServiceTest {
     }
 
     @Test
-    void shouldIngestWithDeterministicChunkIdAndMetadata() {
+    void shouldIngestViaDocumentIngestor() {
         KnowledgeBase kb = KnowledgeBase.builder().id(1L).name("kb1").build();
         when(kbRepository.findById(1L)).thenReturn(Optional.of(kb));
         when(docRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(documentIngestor.ingest(any(), any(), any())).thenReturn(
+                new com.ainexus.ai.rag.DocumentIngestor.IngestResult("doc-uuid", 3, "fixed"));
         MockMultipartFile txt = new MockMultipartFile("file", "a.txt", "text/plain",
                 "Spring AI 是 AI 应用框架。".getBytes(StandardCharsets.UTF_8));
 
         KnowledgeDocument doc = service.uploadDocument(1L, txt, null, null);
 
-        ArgumentCaptor<List<Document>> captor = ArgumentCaptor.forClass(List.class);
-        verify(vectorStore).add(captor.capture());
-        List<Document> docs = captor.getValue();
-        assertEquals(1, docs.size());
-        // Milvus 主键 VarChar(36)：Chunk ID 必须是标准 36 位 UUID
-        String chunkId = docs.get(0).getId();
-        assertEquals(36, chunkId.length());
-        assertDoesNotThrow(() -> UUID.fromString(chunkId));
-        // 元数据必须带知识库名（检索过滤依赖）
-        assertEquals("kb1", docs.get(0).getMetadata().get("knowledge_base_name"));
-        assertEquals(1, doc.getChunkCount());
+        // 入库委托给统一入库器（分块策略/溯源元数据在其内部保证）
+        verify(documentIngestor).ingest(any(), any(), any());
+        assertEquals(3, doc.getChunkCount());
+        assertEquals("doc-uuid", doc.getDocUuid());
         assertEquals(1, doc.getStatus());
     }
 

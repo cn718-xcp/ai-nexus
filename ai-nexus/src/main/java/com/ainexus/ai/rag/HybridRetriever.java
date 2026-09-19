@@ -24,13 +24,14 @@ public class HybridRetriever {
             "is", "are", "what", "how", "of", "to", "for", "and", "or", "in", "on");
 
     /**
-     * RRF 融合：dense 与 sparse 两路排名融合为最终排序。
+     * RRF 融合：dense 与 sparse 两路排名融合为最终排序，可叠加位置权重。
      *
      * @param dense   向量召回候选（已按相似度降序）
      * @param query   用户查询（用于关键词打分）
      * @param rrfK    RRF 常数
+     * @param positionWeight 位置权重（0-1，越大越偏好文档前部片段；0=关闭）
      */
-    public List<Document> fuse(List<Document> dense, String query, int rrfK) {
+    public List<Document> fuse(List<Document> dense, String query, int rrfK, double positionWeight) {
         if (dense.size() <= 1) {
             return dense;
         }
@@ -59,7 +60,22 @@ public class HybridRetriever {
         }
         Map<String, Document> byId = new HashMap<>();
         dense.forEach(d -> byId.put(d.getId(), d));
-        return rrf.entrySet().stream()
+
+        // 位置权重：文档前部片段（章节开头/概述）信息密度通常更高，作为第三路归一化信号叠加。
+        // 归一化：posFactor = positionWeight * (1 - chunkIndex / maxChunkIndex)，0=关闭保持原排序
+        int maxChunkIdx = dense.stream()
+                .map(d -> d.getMetadata().get("chunk_index") instanceof Number n ? n.intValue() : 0)
+                .max(Integer::compare).orElse(0);
+        Map<String, Double> finalScore = new HashMap<>();
+        rrf.forEach((id, score) -> {
+            double bonus = 0;
+            if (positionWeight > 0 && maxChunkIdx > 0) {
+                int idx = byId.get(id).getMetadata().get("chunk_index") instanceof Number n ? n.intValue() : 0;
+                bonus = positionWeight * (1.0 - (double) idx / maxChunkIdx);
+            }
+            finalScore.put(id, score + bonus);
+        });
+        return finalScore.entrySet().stream()
                 .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
                 .map(e -> byId.get(e.getKey()))
                 .toList();

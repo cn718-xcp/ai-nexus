@@ -55,6 +55,10 @@ spring:
                                              # 若该名称已存在且维度不符，请手动 drop 或更换名称
         embedding-dimension: 768             # nomic-embed-text 输出维度
         metricType: COSINE
+        # 索引类型切换（重建 Collection 时生效）：HNSW-高召回低延迟 | IVF_FLAT-大数据量高吞吐
+        # indexType: HNSW
+        # indexParameters: '{"M":24,"efConstruction":200}'   # HNSW 参数
+        # indexParameters: '{"nlist":128}'                    # IVF_FLAT 参数
         initialize-schema: true              # 首次启动自动建 Collection
 
 # ---------------------------------------------------------------------

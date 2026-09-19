@@ -40,8 +40,7 @@ public class KnowledgeBaseService {
     private final org.redisson.api.RedissonClient redissonClient;
     private final com.ainexus.common.metrics.BusinessMetrics metrics;
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
-    private final KnowledgeBackupService backupService;
-    private final TextChunker chunker = new TextChunker(800, 100);
+    private final com.ainexus.ai.rag.DocumentIngestor documentIngestor;
 
     @Audited(action = "KB_CREATE", target = "#name")
     @Transactional
@@ -143,33 +142,23 @@ public class KnowledgeBaseService {
             throw new BizException(ErrorCode.DOC_PARSE_ERROR, "文档内容为空");
         }
 
-        String docUuid = UUID.randomUUID().toString();
         String fileName = file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()
-                ? docUuid : file.getOriginalFilename();
-        List<String> chunks = chunker.split(text);
-        List<Document> documents = new ArrayList<>(chunks.size());
-        for (int i = 0; i < chunks.size(); i++) {
-            // Milvus 主键为 VarChar(36)：用确定性 UUID 保证可复现删除；删除时按相同规则重算
-            String chunkId = UUID.nameUUIDFromBytes((docUuid + ":" + i).getBytes(StandardCharsets.UTF_8)).toString();
-            // file_name/chunk_index 元数据用于 RAG 引用精准定位
-            documents.add(new Document(chunkId, chunks.get(i),
-                    Map.of("knowledge_base_name", kb.getName(), "doc_id", docUuid,
-                            "file_name", fileName, "chunk_index", i)));
-        }
-        vectorStore.add(documents);
+                ? UUID.randomUUID().toString() : file.getOriginalFilename();
+
+        // 统一入库器：分块策略（fixed/parent_child/semantic/auto）+ 溯源元数据 + 向量化 + Chunk 备份
+        var result = documentIngestor.ingest(kb, fileName, text);
 
         KnowledgeDocument doc = KnowledgeDocument.builder()
                 .kbId(kb.getId())
                 .fileName(fileName)
-                .docUuid(docUuid)
+                .docUuid(result.docUuid())
                 .charCount((long) text.length())
-                .chunkCount(chunks.size())
+                .chunkCount(result.chunkCount())
                 .status(1)
                 .build();
-        log.info("[kb] document ingested, kb={}, file={}, chunks={}", kb.getName(), doc.getFileName(), chunks.size());
+        log.info("[kb] document ingested, kb={}, file={}, chunks={}, strategy={}",
+                kb.getName(), doc.getFileName(), result.chunkCount(), result.resolvedStrategy());
         KnowledgeDocument saved = docRepository.save(doc);
-        // 片段原文落库备份（支撑向量数据导出/导入迁移）
-        backupService.saveChunkBackups(kb.getId(), docUuid, chunks);
         // 缓存主动失效：该知识库的检索缓存版本自增
         retrievalCache.bumpVersion(kb.getName());
         return saved;

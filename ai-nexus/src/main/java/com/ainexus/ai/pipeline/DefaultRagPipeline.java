@@ -4,6 +4,7 @@ import com.ainexus.ai.memory.ChatHistoryService;
 import com.ainexus.ai.rag.EmbeddingReranker;
 import com.ainexus.ai.rag.HybridRetriever;
 import com.ainexus.ai.rag.RagProperties;
+import com.ainexus.ai.rag.ParentChildExpander;
 import com.ainexus.ai.rag.RetrievalCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -28,18 +29,21 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
     private final EmbeddingReranker reranker;
     private final HybridRetriever hybridRetriever;
     private final RetrievalCacheService retrievalCache;
+    private final ParentChildExpander parentChildExpander;
 
     public DefaultRagPipeline(VectorStore vectorStore,
                               ChatHistoryService chatHistoryService,
                               RagProperties properties,
                               EmbeddingReranker reranker,
                               HybridRetriever hybridRetriever,
-                              RetrievalCacheService retrievalCache) {
+                              RetrievalCacheService retrievalCache,
+                              ParentChildExpander parentChildExpander) {
         super(vectorStore, chatHistoryService);
         this.properties = properties;
         this.reranker = reranker;
         this.hybridRetriever = hybridRetriever;
         this.retrievalCache = retrievalCache;
+        this.parentChildExpander = parentChildExpander;
     }
 
     @Override
@@ -63,9 +67,10 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
         List<Document> docs = candidates == null ? List.of() : candidates;
         retrievalCache.put(context.getKnowledgeBaseName(), context.getRewrittenQuery(), candidateK, docs);
 
-        // 混合模式：RRF 融合语义与字面两路排序
+        // 混合模式：RRF 融合语义+字面两路排序，可叠加位置权重（多维打分融合）
         if ("hybrid".equalsIgnoreCase(properties.getMode()) && !docs.isEmpty()) {
-            docs = hybridRetriever.fuse(docs, context.getRewrittenQuery(), properties.getRrfK());
+            docs = hybridRetriever.fuse(docs, context.getRewrittenQuery(),
+                    properties.getRrfK(), properties.getPositionWeight());
             log.info("[rag] hybrid fusion applied, candidates={}", docs.size());
         }
         return docs;
@@ -73,6 +78,8 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
 
     @Override
     protected List<Document> refine(RagContext context, List<Document> candidates) {
+        // 父子分块扩展：子块命中 → 父块上下文（回答质量优先）
+        candidates = parentChildExpander.expand(candidates);
         // 重排：Embedding 余弦精排后截断 topK
         if (properties.isRerankEnabled() && !candidates.isEmpty()) {
             return reranker.rerank(context.getRewrittenQuery(), candidates, context.getTopK());

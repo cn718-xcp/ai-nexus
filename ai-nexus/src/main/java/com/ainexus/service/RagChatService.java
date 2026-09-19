@@ -41,6 +41,8 @@ public class RagChatService {
     private final ChatHistoryService chatHistoryService;
     private final com.ainexus.common.metrics.BusinessMetrics metrics;
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
+    private final com.ainexus.ai.rag.CitationMarker citationMarker;
+    private final com.ainexus.ai.rag.RagProperties ragProperties;
 
     public RagAnswerResponse ask(String sessionId, String question, String kbName, int topK, String scene, Long userId, Long tenantId) {
         if (kbName != null && !kbName.isBlank()
@@ -89,11 +91,15 @@ public class RagChatService {
         chatHistoryService.saveUser(sid, question, null, userId, tenantId);
         chatHistoryService.saveAssistant(sid, result.result(), chatModel.getClass().getSimpleName(), userId, tenantId);
 
+        List<ChunkReference> references = toReferences(context.getDocuments());
+        // 引用高亮：答案中与引用片段重叠的句子追加来源序号（rag.citation-markers 开关）
+        String answer = ragProperties.isCitationMarkers()
+                ? citationMarker.mark(result.result(), references) : result.result();
         return RagAnswerResponse.builder()
                 .sessionId(sid)
-                .answer(result.result())
+                .answer(answer)
                 .referencedChunks(context.getChunks())
-                .references(toReferences(context.getDocuments()))
+                .references(references)
                 .fallback(result.fallback())
                 .build();
     }
@@ -173,6 +179,9 @@ public class RagChatService {
                 .documentId((String) d.getMetadata().get("doc_id"))
                 .chunkIndex(d.getMetadata().get("chunk_index") instanceof Number n ? n.intValue() : null)
                 .score(d.getScore())
+                .startOffset(d.getMetadata().get("char_start") instanceof Number n ? n.intValue() : null)
+                .endOffset(d.getMetadata().get("char_end") instanceof Number n ? n.intValue() : null)
+                .section((String) d.getMetadata().get("section"))
                 .build()).toList();
     }
 }
