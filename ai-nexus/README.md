@@ -97,7 +97,7 @@ java -jar target/ai-nexus.jar --spring.profiles.active=dev
 | POST | /api/v1/kb/{kbId}/documents | 上传文档（txt/md/json/csv）切分入库 |
 | GET | /api/v1/kb | 知识库列表 |
 | POST | /api/v1/rag/ask | RAG 问答（含引用片段） |
-| POST | /api/v1/rag/stream | RAG 流式问答（SSE） |
+| POST | /api/v1/rag/stream | RAG 流式问答（SSE，检索后首 token 直出） |
 | POST | /api/v1/chat | 多轮对话（限流+幂等） |
 | POST | /api/v1/chat/extract | 结构化输出：信息抽取 |
 | POST | /api/v1/agent/invoke | Agent 工具调用 |
@@ -129,14 +129,48 @@ curl -X POST http://localhost:8080/api/v1/agent/vision -F 'image=@./cat.png' -F 
 curl http://localhost:8080/api/v1/stats/overview
 ```
 
-## 五、单元测试
+## 五、环境变量（生产 profile）
+
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DB` | MySQL 连接 | localhost / 3306 / ai_nexus |
+| `MYSQL_USER` / `MYSQL_PASSWORD` | MySQL 凭据 | root / 空 |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接 | localhost / 6379 / 空 |
+| `OLLAMA_BASE_URL` | Ollama 服务地址 | http://ollama:11434 |
+| `MILVUS_HOST` / `MILVUS_PORT` / `MILVUS_USER` / `MILVUS_PASSWORD` | Milvus 连接 | localhost / 19530 / root / milvus |
+
+> dev 环境密码可在 `application-dev.yml` 中直接修改，或用 `MYSQL_PASSWORD` 环境变量覆盖，避免提交个人密码到仓库。
+
+## 六、单元测试
 
 ```bash
 mvn test
 ```
-覆盖：文本切分器（切分长度/overlap/边界）、多模型路由策略选择、RAG 流水线（检索参数与过滤表达式、提示词组装、空检索兜底）、统一响应体与错误码。
 
-## 六、目录结构
+覆盖（共 19 个用例）：
+
+| 测试类 | 覆盖点 |
+|---|---|
+| `TextChunkerTest` | 切分长度上限、overlap 衔接、空白输入、非法配置 |
+| `ModelRouteContextTest` | 策略选择优先级、无策略兜底异常 |
+| `RagPipelineTest` | 检索 topK/过滤表达式、提示词组装、空检索兜底 |
+| `ApiResponseTest` | 统一响应体、错误码、业务异常 |
+| `KnowledgeBaseServiceTest` | Collection 名规范化（中文名安全）、扩展名拦截、Chunk ID 36 位确定性、级联删除 ID 重算 |
+| `StatsServiceTest` | 聚合转换、null 防护（不抛 NPE） |
+| `SpelKeyResolverTest` | 参数表达式、嵌套属性、null 归一化 |
+
+## 七、常见问题排查（FAQ）
+
+| 现象 | 原因与处理 |
+|---|---|
+| `model "nomic-embed-text" not found` | Embedding 模型未拉取：`ollama pull nomic-embed-text`（RAG 必需） |
+| 多模态接口报模型不支持 | 多模态模型未拉取：`ollama pull llava:7b`，或修改 `ainexus.model-route.routes.MULTIMODAL` |
+| 向量入库报维度不匹配 | Collection 已按旧维度创建，Milvus 不会自动重建：手动 drop 该 Collection 或更换 `spring.ai.vectorstore.milvus.collection-name`（维度由 `embedding-dimension` 决定，nomic-embed-text 为 768） |
+| 中文知识库名 | 已在服务端规范化为 ASCII 安全的 Collection 名（kb_ + md5 前 8 位），无需处理 |
+| 启动报 8080 端口占用 | 结束残留进程或改 `server.port` |
+| Redis 连接失败 | 限流/幂等依赖 Redis，检查 `spring.data.redis.*` 配置 |
+
+## 八、目录结构
 
 ```
 ai-nexus
