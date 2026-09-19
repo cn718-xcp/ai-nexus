@@ -14,8 +14,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
-
 /**
  * 对话接口：普通对话（限流 + 幂等）与结构化输出。
  */

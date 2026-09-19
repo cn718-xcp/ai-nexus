@@ -16,9 +16,6 @@ import org.springframework.ai.content.Media;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.util.Objects;
-
 /**
  * 多模态服务：图片理解（图像 + 文本混合输入）。
  */
@@ -72,7 +69,8 @@ public class MultimodalService {
             throw new BizException(ErrorCode.MULTIMODAL_INPUT_ERROR, "图片不能为空");
         }
         String type = image.getContentType();
-        if (type == null || !Objects.requireNonNull(type).startsWith("image/")) {
+        // 前置判空后 requireNonNull 冗余，直接使用 type
+        if (type == null || !type.startsWith("image/")) {
             throw new BizException(ErrorCode.MULTIMODAL_INPUT_ERROR, "仅支持图片类型文件");
         }
     }

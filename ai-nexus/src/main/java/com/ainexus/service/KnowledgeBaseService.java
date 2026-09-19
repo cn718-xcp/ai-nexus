@@ -1,5 +1,6 @@
 package com.ainexus.service;
 
+import com.ainexus.ai.chunk.TextChunker;
 import com.ainexus.common.api.ErrorCode;
 import com.ainexus.common.exception.BizException;
 import cn.hutool.crypto.digest.DigestUtil;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -32,8 +34,7 @@ public class KnowledgeBaseService {
     private final KnowledgeBaseRepository kbRepository;
     private final KnowledgeDocumentRepository docRepository;
     private final VectorStore vectorStore;
-    private final com.ainexus.ai.chunk.TextChunker chunker =
-            new com.ainexus.ai.chunk.TextChunker(800, 100);
+    private final TextChunker chunker = new TextChunker(800, 100);
 
     @Transactional
     public KnowledgeBase create(String name, String description) {
@@ -85,7 +86,7 @@ public class KnowledgeBaseService {
             // Milvus 主键为 VarChar(36)：用确定性 UUID 保证可复现删除；删除时按相同规则重算
             String chunkId = UUID.nameUUIDFromBytes((docUuid + ":" + i).getBytes(StandardCharsets.UTF_8)).toString();
             documents.add(new Document(chunkId, chunks.get(i),
-                    java.util.Map.of("knowledge_base_name", kb.getName(), "doc_id", docUuid)));
+                    Map.of("knowledge_base_name", kb.getName(), "doc_id", docUuid)));
         }
         vectorStore.add(documents);
 
