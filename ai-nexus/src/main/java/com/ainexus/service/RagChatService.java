@@ -43,6 +43,9 @@ public class RagChatService {
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
     private final com.ainexus.ai.rag.CitationMarker citationMarker;
     private final com.ainexus.ai.rag.RagProperties ragProperties;
+    private final com.ainexus.ai.eval.RagEvalLoopService evalLoopService;
+    @org.springframework.beans.factory.annotation.Value("${ainexus.eval.answer-enabled:false}")
+    private boolean answerEvalEnabled;
 
     public RagAnswerResponse ask(String sessionId, String question, String kbName, int topK, String scene, Long userId, Long tenantId) {
         if (kbName != null && !kbName.isBlank()
@@ -86,6 +89,15 @@ public class RagChatService {
                 .fallback(result.fallback())
                 .errorMessage(result.fallback() ? "model unavailable, fallback applied" : null)
                 .build());
+
+        // 效果评估闭环：LLM 三维评审，低分自动入 Bad Case 库（eval.answer-enabled 开关，默认关）
+        if (answerEvalEnabled) {
+            try {
+                evalLoopService.evaluateAnswer(question, context.getChunks(), result.result());
+            } catch (Exception e) {
+                log.warn("[rag-eval] answer eval failed: {}", e.getMessage());
+            }
+        }
 
         // 写入对话历史：下一轮 RAG 才能引用本轮问答（在流水线读取之后写，避免当轮重复）
         chatHistoryService.saveUser(sid, question, null, userId, tenantId);

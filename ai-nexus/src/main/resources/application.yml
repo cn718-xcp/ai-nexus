@@ -84,6 +84,9 @@ ainexus:
     max-steps: 8                   # 两阶段执行最大步数（循环检测自动终止）
     return-thinking: false         # 是否返回思维链（Thought/Action/Observation）
     fallback-to-plain-qa: true     # 工具不可用自动降级纯问答
+  eval:                            # AI 效果评估闭环
+    answer-enabled: false          # RAG 回答自动评审（LLM 三维评分，低分入 Bad Case；增加一次模型调用）
+    badcase-threshold: 3           # Bad Case 判定阈值（任一维度 < 阈值即入列）
   dynamic:                         # 动态配置中心：DB 配置优先级高于本地 yml（enabled=false 仅读 yml）
     enabled: false
   models:                          # 多模型统一适配层（模型键 provider:model）

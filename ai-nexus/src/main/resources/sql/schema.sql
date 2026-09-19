@@ -140,3 +140,18 @@ CREATE TABLE IF NOT EXISTS knowledge_chunk (
     created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_kb_doc (kb_id, doc_uuid)
 ) ENGINE = InnoDB COMMENT '知识库 Chunk 备份';
+
+-- RAG 效果评估 Bad Case 库（阶段4：评估与迭代闭环）
+CREATE TABLE IF NOT EXISTS rag_bad_case (
+    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    question       VARCHAR(512) NOT NULL COMMENT '用户问题',
+    answer         TEXT         NOT NULL COMMENT '模型回答',
+    references_json TEXT        NULL COMMENT '引用片段 JSON',
+    consistency    INT          NULL COMMENT '事实一致性得分 1-5',
+    relevance      INT          NULL COMMENT '相关性得分 1-5',
+    completeness   INT          NULL COMMENT '完整度得分 1-5',
+    reviewed       INT          NOT NULL DEFAULT 0 COMMENT '人工标注：0-未处理 1-已标注',
+    feedback       VARCHAR(1024) NULL COMMENT '人工反馈/优化备注',
+    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_reviewed (reviewed, created_at)
+) ENGINE = InnoDB COMMENT 'RAG Bad Case';

@@ -34,6 +34,8 @@ public class BusinessMetrics {
     private Counter chatRequests;
     private Counter toolCalls;
     private Counter toolFailures;
+    private Counter evalPass;
+    private Counter evalTotal;
     private final AtomicLong kbTotal = new AtomicLong();
     private volatile KnowledgeBaseRepository kbRepository;
 
@@ -44,6 +46,8 @@ public class BusinessMetrics {
         this.chatRequests = Counter.builder("ainexus.chat.requests").description("Chat requests").register(registry);
         this.toolCalls = Counter.builder("ainexus.tool.calls").description("Agent tool calls").register(registry);
         this.toolFailures = Counter.builder("ainexus.tool.failures").description("Agent tool call failures").register(registry);
+        this.evalPass = Counter.builder("ainexus.eval.pass").description("Eval passed cases").register(registry);
+        this.evalTotal = Counter.builder("ainexus.eval.total").description("Eval total cases").register(registry);
         registry.gauge("ainexus.kb.count", kbTotal);
     }
 
@@ -76,6 +80,14 @@ public class BusinessMetrics {
         ragRequests.increment();
         if (hit) {
             ragHits.increment();
+        }
+    }
+
+    /** RAG 效果评估：通过率 = pass/total（按时间聚合趋势） */
+    public void onEvalResult(boolean passed) {
+        evalTotal.increment();
+        if (passed) {
+            evalPass.increment();
         }
     }
 
