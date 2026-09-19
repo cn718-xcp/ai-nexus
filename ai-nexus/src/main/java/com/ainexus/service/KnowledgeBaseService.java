@@ -2,6 +2,7 @@ package com.ainexus.service;
 
 import com.ainexus.common.api.ErrorCode;
 import com.ainexus.common.exception.BizException;
+import cn.hutool.crypto.digest.DigestUtil;
 import com.ainexus.domain.entity.KnowledgeBase;
 import com.ainexus.domain.entity.KnowledgeDocument;
 import com.ainexus.domain.repository.KnowledgeBaseRepository;
@@ -39,11 +40,13 @@ public class KnowledgeBaseService {
         if (kbRepository.existsByName(name)) {
             throw new BizException(ErrorCode.BIZ_ERROR, "知识库名称已存在: " + name);
         }
-        // collectionName 由服务端按名称规范化生成，避免前端注入
+        // Milvus Collection 名仅允许字母/数字/下划线：中文等字符需剔除，
+        // 追加名称 MD5 前 8 位保证不同名称（如 "a_b" 与 "a b"）规范化后仍唯一
+        String normalized = name.replaceAll("[^a-zA-Z0-9]", "_").toLowerCase();
         KnowledgeBase kb = KnowledgeBase.builder()
                 .name(name)
                 .description(description)
-                .collectionName("kb_" + name.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5]", "_").toLowerCase())
+                .collectionName("kb_" + DigestUtil.md5Hex(name).substring(0, 8) + "_" + normalized)
                 .status(1)
                 .build();
         return kbRepository.save(kb);
