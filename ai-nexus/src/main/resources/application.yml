@@ -72,6 +72,13 @@ ainexus:
     enabled: false
   tenant:                          # 多租户开关：dev 默认关闭（单租户模式，行为与关闭前完全一致）
     enabled: false
+    user-qps: 5                    # 用户级 QPS 限流阈值（0 表示不启用用户维度限流）
+  model-pool:                      # 模型节点池：多 Ollama 实例集群化（enabled=false 单节点直通）
+    enabled: false
+    strategy: round_robin          # 负载均衡：round_robin-轮询 | least_connections-最少连接
+    health-interval-seconds: 15    # 节点健康探测间隔（故障摘除/恢复回流）
+    health-timeout-ms: 2000
+    nodes: []                      # 节点列表，如 [{name: node1, base-url: http://192.168.1.10:11434}]
   jwt:                             # JWT 配置（auth.enabled=true 时生效）
     secret: ${JWT_SECRET:change-me-in-production-ai-nexus-jwt-secret-key-2026}
     access-token-minutes: 30       # 访问令牌有效期

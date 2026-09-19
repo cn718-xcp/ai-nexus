@@ -51,8 +51,8 @@ public class ChatService {
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         metrics.onChatRequest();
         // 多租户开启时校验租户状态与每日调用配额（关闭态直通）
-        tenantQuotaService.ensureModelCallAllowed(tenantId);
-        ChatModel chatModel = routeContext.route(ModelScene.CHAT);
+        tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
+        ChatModel chatModel = routeContext.route(ModelScene.CHAT, tenantId);
 
         // 组装消息：系统提示 + 历史滑窗 + 本轮输入
         List<Message> messages = new ArrayList<>();

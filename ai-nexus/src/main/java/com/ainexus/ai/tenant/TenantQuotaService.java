@@ -8,6 +8,9 @@ import com.ainexus.domain.repository.SysTenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RAtomicLong;
+import org.redisson.api.RRateLimiter;
+import org.redisson.api.RateIntervalUnit;
+import org.redisson.api.RateType;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -33,6 +36,10 @@ public class TenantQuotaService {
 
     @Value("${ainexus.tenant.enabled:false}")
     private boolean tenantEnabled;
+
+    /** 用户级 QPS 限流阈值（多租户开启时生效；0 表示不启用用户维度限流） */
+    @Value("${ainexus.tenant.user-qps:5}")
+    private int userQps;
 
     /** 租户是否启用校验：多租户开启且 tenantId 非空时检查租户状态 */
     public void ensureTenantActive(Long tenantId) {
@@ -63,14 +70,17 @@ public class TenantQuotaService {
     }
 
     /**
-     * 模型调用前校验：租户状态 + 每日调用限额（原子自增并判定，超限拒绝）。
-     * 计数 Key 按天滚动，TTL 25h 自动清理。
+     * 模型调用前校验（三重管控）：租户状态 + 租户 QPS + 每日调用限额。
+     * QPS：租户维度复用 concurrent_quota 作为每秒上限；用户维度按 user-qps 配置。
+     * 每日限额：Redis 原子自增并判定，计数 Key 按天滚动，TTL 25h 自动清理。
      */
-    public void ensureModelCallAllowed(Long tenantId) {
+    public void ensureModelCallAllowed(Long tenantId, Long userId) {
         if (!tenantEnabled || tenantId == null) {
             return;
         }
         ensureTenantActive(tenantId);
+        ensureTenantQps(tenantId);
+        ensureUserQps(userId);
         SysTenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BizException(ErrorCode.TENANT_NOT_FOUND));
         String key = "ainexus:quota:daily:" + tenantId + ":" + LocalDate.now();
@@ -83,6 +93,32 @@ public class TenantQuotaService {
             log.warn("[tenant-quota] daily quota exceeded, tenant={}, used={}, quota={}",
                     tenant.getCode(), used, tenant.getDailyModelQuota());
             throw new BizException(ErrorCode.TENANT_DAILY_QUOTA_EXCEEDED);
+        }
+    }
+
+    /** 租户维度 QPS：令牌桶按秒补充，超限快速拒绝 */
+    private void ensureTenantQps(Long tenantId) {
+        SysTenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BizException(ErrorCode.TENANT_NOT_FOUND));
+        RRateLimiter limiter = redissonClient.getRateLimiter("ainexus:quota:qps:t:" + tenantId);
+        // trySetRate 幂等：首次设置后不重置已发放的令牌桶
+        limiter.trySetRate(RateType.OVERALL, tenant.getConcurrentQuota(), 1, RateIntervalUnit.SECONDS);
+        if (!limiter.tryAcquire()) {
+            log.warn("[tenant-quota] tenant qps exceeded, tenant={}", tenant.getCode());
+            throw new BizException(ErrorCode.TENANT_QPS_EXCEEDED);
+        }
+    }
+
+    /** 用户维度 QPS：防止单用户占满租户额度（user-qps<=0 时不启用） */
+    private void ensureUserQps(Long userId) {
+        if (userId == null || userQps <= 0) {
+            return;
+        }
+        RRateLimiter limiter = redissonClient.getRateLimiter("ainexus:quota:qps:u:" + userId);
+        limiter.trySetRate(RateType.OVERALL, userQps, 1, RateIntervalUnit.SECONDS);
+        if (!limiter.tryAcquire()) {
+            log.warn("[tenant-quota] user qps exceeded, user={}", userId);
+            throw new BizException(ErrorCode.TENANT_QPS_EXCEEDED);
         }
     }
 

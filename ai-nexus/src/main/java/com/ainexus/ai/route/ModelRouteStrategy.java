@@ -13,4 +13,9 @@ public interface ModelRouteStrategy {
 
     /** 路由决策：返回场景对应的目标模型 */
     ChatModel route(ModelScene scene);
+
+    /** 带租户维度的路由决策（多租户开启时租户专属路由优先）；默认忽略租户维度 */
+    default ChatModel route(ModelScene scene, Long tenantId) {
+        return route(scene);
+    }
 }

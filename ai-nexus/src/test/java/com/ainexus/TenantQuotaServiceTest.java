@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.redisson.api.RAtomicLong;
+import org.redisson.api.RRateLimiter;
 import org.redisson.api.RedissonClient;
 
 import java.util.Optional;
@@ -43,11 +44,14 @@ class TenantQuotaServiceTest {
     @Mock
     private RAtomicLong dailyCounter;
 
+    @Mock
+    private RRateLimiter rateLimiter;
+
     private TenantQuotaService service;
 
     private final SysTenant tenant = SysTenant.builder()
             .id(1L).code("acme").status(1)
-            .kbQuota(2).dailyModelQuota(3)
+            .kbQuota(2).concurrentQuota(2).dailyModelQuota(3)
             .build();
 
     @BeforeEach
@@ -56,6 +60,8 @@ class TenantQuotaServiceTest {
         setEnabled(true);
         when(tenantRepository.findById(1L)).thenReturn(Optional.of(tenant));
         when(redissonClient.getAtomicLong(anyString())).thenReturn(dailyCounter);
+        when(redissonClient.getRateLimiter(anyString())).thenReturn(rateLimiter);
+        when(rateLimiter.tryAcquire()).thenReturn(true);
     }
 
     private void setEnabled(boolean enabled) throws RuntimeException {
@@ -73,14 +79,14 @@ class TenantQuotaServiceTest {
         // 开关关闭（dev 默认）：所有校验直通，行为与单租户模式一致
         setEnabled(false);
         assertDoesNotThrow(() -> service.ensureKbCreateAllowed(1L));
-        assertDoesNotThrow(() -> service.ensureModelCallAllowed(1L));
-        assertDoesNotThrow(() -> service.ensureModelCallAllowed(null));
+        assertDoesNotThrow(() -> service.ensureModelCallAllowed(1L, null));
+        assertDoesNotThrow(() -> service.ensureModelCallAllowed(null, null));
     }
 
     @Test
     void shouldRejectDisabledTenant() {
         tenant.setStatus(0);
-        BizException e = assertThrows(BizException.class, () -> service.ensureModelCallAllowed(1L));
+        BizException e = assertThrows(BizException.class, () -> service.ensureModelCallAllowed(1L, null));
         assertEquals(ErrorCode.TENANT_DISABLED, e.getErrorCode());
     }
 
@@ -98,10 +104,10 @@ class TenantQuotaServiceTest {
     void shouldRejectDailyModelQuotaExceeded() {
         // 每日限额 3：第 4 次调用被拒绝
         when(dailyCounter.incrementAndGet()).thenReturn(1L, 2L, 3L, 4L);
-        assertDoesNotThrow(() -> service.ensureModelCallAllowed(1L));
-        assertDoesNotThrow(() -> service.ensureModelCallAllowed(1L));
-        assertDoesNotThrow(() -> service.ensureModelCallAllowed(1L));
-        BizException e = assertThrows(BizException.class, () -> service.ensureModelCallAllowed(1L));
+        assertDoesNotThrow(() -> service.ensureModelCallAllowed(1L, null));
+        assertDoesNotThrow(() -> service.ensureModelCallAllowed(1L, null));
+        assertDoesNotThrow(() -> service.ensureModelCallAllowed(1L, null));
+        BizException e = assertThrows(BizException.class, () -> service.ensureModelCallAllowed(1L, null));
         assertEquals(ErrorCode.TENANT_DAILY_QUOTA_EXCEEDED, e.getErrorCode());
     }
 }

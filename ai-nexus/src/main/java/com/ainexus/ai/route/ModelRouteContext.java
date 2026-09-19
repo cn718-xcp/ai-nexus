@@ -26,10 +26,16 @@ public class ModelRouteContext {
     }
 
     public ChatModel route(ModelScene scene) {
-        return cache.computeIfAbsent(scene.name(), key -> strategies.stream()
+        return route(scene, null);
+    }
+
+    /** 带租户维度的路由：缓存键包含租户，保证租户专属路由互不污染 */
+    public ChatModel route(ModelScene scene, Long tenantId) {
+        String cacheKey = scene.name() + ":" + (tenantId == null ? "_" : tenantId);
+        return cache.computeIfAbsent(cacheKey, key -> strategies.stream()
                 .filter(s -> s.supports(scene))
                 .findFirst()
                 .orElseThrow(() -> new BizException(ErrorCode.MODEL_CALL_ERROR, "无可用路由策略: " + scene))
-                .route(scene));
+                .route(scene, tenantId));
     }
 }

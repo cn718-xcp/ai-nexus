@@ -53,7 +53,7 @@ public class AgentService {
         // 会话 ID 缺省时服务端生成（历史与埋点均绑定该会话；多轮记忆需客户端回传）
         String sid = sessionId == null || sessionId.isBlank() ? java.util.UUID.randomUUID().toString() : sessionId;
         // 每次请求构建会话级 ChatClient：注册工具集（工厂模式）
-        ChatClient client = ChatClient.builder(routeContext.route(ModelScene.AGENT))
+        ChatClient client = ChatClient.builder(routeContext.route(ModelScene.AGENT, tenantId))
                 .defaultToolCallbacks(MethodToolCallbackProvider.builder()
                         .toolObjects(aiTools, knowledgeBaseSearchTool).build())
                 .build();
@@ -65,7 +65,7 @@ public class AgentService {
                         ? new AssistantMessage(h.getContent())
                         : new UserMessage(h.getContent())));
 
-        tenantQuotaService.ensureModelCallAllowed(tenantId);
+        tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
         var result = resilience.execute(
                 ModelScene.AGENT.name(),
                 () -> gate.call(() -> client.prompt()

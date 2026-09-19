@@ -47,7 +47,7 @@ public class RagChatService {
                 && knowledgeBaseService.list(userId, tenantId).stream().noneMatch(kb -> kb.getName().equals(kbName))) {
             throw new BizException(ErrorCode.KB_NOT_FOUND);
         }
-        tenantQuotaService.ensureModelCallAllowed(tenantId);
+        tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
         // 会话 ID 在入口统一确定，保证流水线历史加载与响应返回一致
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         // 场景归一：未指定走 RAG 专用路由（也是熔断器维度）
@@ -63,7 +63,7 @@ public class RagChatService {
                 .topK(topK <= 0 ? 5 : topK)
                 .build());
 
-        ChatModel chatModel = routeContext.route(modelScene);
+        ChatModel chatModel = routeContext.route(modelScene, tenantId);
         ModelCallResilienceTemplate.ResilienceResult<String> result = resilience.execute(
                 sceneName,
                 () -> gate.call(() -> chatModel.call(context.getFinalPrompt())),
@@ -107,7 +107,7 @@ public class RagChatService {
                 && knowledgeBaseService.list(userId, tenantId).stream().noneMatch(kb -> kb.getName().equals(kbName))) {
             throw new BizException(ErrorCode.KB_NOT_FOUND);
         }
-        tenantQuotaService.ensureModelCallAllowed(tenantId);
+        tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         RagContext context = ragPipeline.run(RagContext.builder()
                 .question(question)
@@ -117,7 +117,7 @@ public class RagChatService {
                 .knowledgeBaseName(kbName)
                 .topK(topK <= 0 ? 5 : topK)
                 .build());
-        ChatModel chatModel = routeContext.route(ModelScene.of(scene) == ModelScene.CHAT ? ModelScene.RAG : ModelScene.of(scene));
+        ChatModel chatModel = routeContext.route(ModelScene.of(scene) == ModelScene.CHAT ? ModelScene.RAG : ModelScene.of(scene), tenantId);
 
         chatHistoryService.saveUser(sid, question, null, userId, tenantId);
         long start = System.currentTimeMillis();
