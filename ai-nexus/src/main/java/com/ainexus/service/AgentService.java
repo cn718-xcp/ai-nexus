@@ -44,6 +44,8 @@ public class AgentService {
     private final KnowledgeBaseSearchTool knowledgeBaseSearchTool;
     private final ChatHistoryService chatHistoryService;
     private final AiCallEventPublisher eventPublisher;
+    private final com.ainexus.ai.resilience.ModelCallResilienceTemplate resilience;
+    private final com.ainexus.ai.resilience.ModelCallGate gate;
 
     public String invoke(String sessionId, String prompt, Long userId) {
         long start = System.currentTimeMillis();
@@ -60,12 +62,17 @@ public class AgentService {
                         ? new AssistantMessage(h.getContent())
                         : new UserMessage(h.getContent())));
 
-        String answer = client.prompt()
-                .system(PLANNER_SYSTEM_PROMPT)
-                .messages(history)
-                .user(prompt)
-                .call()
-                .content();
+        var result = resilience.execute(
+                ModelScene.AGENT.name(),
+                () -> gate.call(() -> client.prompt()
+                        .system(PLANNER_SYSTEM_PROMPT)
+                        .messages(history)
+                        .user(prompt)
+                        .call()
+                        .content()),
+                "static-reply",
+                () -> "抱歉，模型暂时不可用，请稍后再试。");
+        String answer = result.result();
 
         // Agent 轮次同样写入历史，实现跨轮上下文延续
         chatHistoryService.saveUser(sessionId, prompt, "agent", userId);
@@ -76,8 +83,9 @@ public class AgentService {
                 .modelName("agent")
                 .sessionId(sessionId)
                 .userId(userId)
-                .success(true)
+                .success(!result.fallback())
                 .costMs(System.currentTimeMillis() - start)
+                .fallback(result.fallback())
                 .build());
         return answer;
     }

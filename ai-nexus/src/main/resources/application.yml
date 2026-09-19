@@ -79,6 +79,15 @@ ainexus:
     rerank-enabled: false          # 二阶段 Embedding 余弦精排（提升头部召回准确率，增加一次批量 Embedding 调用）
     over-fetch: 3                  # 过召回倍数：候选池 = topK * overFetch
     rrf-k: 60                      # RRF 融合常数
+    cache-enabled: false           # 向量检索结果缓存（TTL 10min + 文档变更版本号主动失效）
+  resilience:                      # 模型调用熔断（按场景维度：CHAT/RAG/AGENT...）
+    circuit-enabled: false         # dev 默认关闭保持原行为；prod 建议开启
+    circuit-window: 10             # 滚动窗口样本数
+    circuit-failure-rate: 0.6      # 熔断失败率阈值（60%）
+    circuit-open-seconds: 30       # 熔断冷却时长（此后半开试探）
+  concurrency:                     # 模型调用并发闸门（Redisson 信号量，跨实例生效）
+    model-max: 0                   # 最大并发数；<=0 表示不启用排队（dev 默认关闭）
+    queue-timeout-seconds: 15      # 排队等待超时，超时快速降级
 
 # ---------------------------------------------------------------------
 # 可观测（Actuator + Micrometer + Spring AI Observation）

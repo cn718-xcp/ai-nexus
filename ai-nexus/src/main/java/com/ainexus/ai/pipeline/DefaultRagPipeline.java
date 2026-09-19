@@ -4,6 +4,7 @@ import com.ainexus.ai.memory.ChatHistoryService;
 import com.ainexus.ai.rag.EmbeddingReranker;
 import com.ainexus.ai.rag.HybridRetriever;
 import com.ainexus.ai.rag.RagProperties;
+import com.ainexus.ai.rag.RetrievalCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -26,22 +27,30 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
     private final RagProperties properties;
     private final EmbeddingReranker reranker;
     private final HybridRetriever hybridRetriever;
+    private final RetrievalCacheService retrievalCache;
 
     public DefaultRagPipeline(VectorStore vectorStore,
                               ChatHistoryService chatHistoryService,
                               RagProperties properties,
                               EmbeddingReranker reranker,
-                              HybridRetriever hybridRetriever) {
+                              HybridRetriever hybridRetriever,
+                              RetrievalCacheService retrievalCache) {
         super(vectorStore, chatHistoryService);
         this.properties = properties;
         this.reranker = reranker;
         this.hybridRetriever = hybridRetriever;
+        this.retrievalCache = retrievalCache;
     }
 
     @Override
     protected List<Document> doSearch(RagContext context) {
         // 过召回：候选池 = topK * overFetch，为融合与精排留出重排空间
         int candidateK = Math.max(context.getTopK(), context.getTopK() * properties.getOverFetch());
+        // 检索结果缓存：重复问题（高频知识库 FAQ 场景）直接跳过向量库 IO
+        List<Document> cached = retrievalCache.get(context.getKnowledgeBaseName(), context.getRewrittenQuery(), candidateK);
+        if (cached != null) {
+            return cached;
+        }
         SearchRequest.Builder builder = SearchRequest.builder()
                 .query(context.getRewrittenQuery())
                 .topK(candidateK)
@@ -52,6 +61,7 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
         }
         List<Document> candidates = vectorStore.similaritySearch(builder.build());
         List<Document> docs = candidates == null ? List.of() : candidates;
+        retrievalCache.put(context.getKnowledgeBaseName(), context.getRewrittenQuery(), candidateK, docs);
 
         // 混合模式：RRF 融合语义与字面两路排序
         if ("hybrid".equalsIgnoreCase(properties.getMode()) && !docs.isEmpty()) {

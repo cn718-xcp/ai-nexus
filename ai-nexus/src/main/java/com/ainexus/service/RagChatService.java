@@ -35,6 +35,7 @@ public class RagChatService {
     private final AbstractRagPipeline ragPipeline;
     private final ModelRouteContext routeContext;
     private final ModelCallResilienceTemplate resilience;
+    private final com.ainexus.ai.resilience.ModelCallGate gate;
     private final AiCallEventPublisher eventPublisher;
     private final KnowledgeBaseService knowledgeBaseService;
     private final ChatHistoryService chatHistoryService;
@@ -46,6 +47,9 @@ public class RagChatService {
         }
         // 会话 ID 在入口统一确定，保证流水线历史加载与响应返回一致
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
+        // 场景归一：未指定走 RAG 专用路由（也是熔断器维度）
+        ModelScene modelScene = ModelScene.of(scene) == ModelScene.CHAT ? ModelScene.RAG : ModelScene.of(scene);
+        String sceneName = modelScene.name();
 
         RagContext context = ragPipeline.run(RagContext.builder()
                 .question(question)
@@ -55,17 +59,17 @@ public class RagChatService {
                 .topK(topK <= 0 ? 5 : topK)
                 .build());
 
-        ChatModel chatModel = routeContext.route(ModelScene.of(scene) == ModelScene.CHAT ? ModelScene.RAG : ModelScene.of(scene));
+        ChatModel chatModel = routeContext.route(modelScene);
         ModelCallResilienceTemplate.ResilienceResult<String> result = resilience.execute(
-                () -> chatModel.call(context.getFinalPrompt()),
+                sceneName,
+                () -> gate.call(() -> chatModel.call(context.getFinalPrompt())),
                 "no-context-reply",
                 () -> context.getChunks().isEmpty()
                         ? "抱歉，模型暂时不可用。"
                         : "抱歉，模型暂时不可用，以下是与问题相关的知识库片段：\n" + String.join("\n---\n", context.getChunks()));
 
-        String usedScene = scene == null || scene.isBlank() ? ModelScene.RAG.name() : scene.toUpperCase();
         eventPublisher.publish(AiCallEvent.builder()
-                .scene(usedScene)
+                .scene(sceneName)
                 .modelName(chatModel.getClass().getSimpleName())
                 .sessionId(sid)
                 .userId(userId)
@@ -86,20 +90,6 @@ public class RagChatService {
                 .references(toReferences(context.getDocuments()))
                 .fallback(result.fallback())
                 .build();
-    }
-
-    /** 引用精准定位：从命中文档元数据提取来源文档 / 片段序号 / 相似度分 */
-    private List<ChunkReference> toReferences(List<Document> documents) {
-        if (documents == null) {
-            return List.of();
-        }
-        return documents.stream().map(d -> ChunkReference.builder()
-                .content(d.getText())
-                .documentName((String) d.getMetadata().get("file_name"))
-                .documentId((String) d.getMetadata().get("doc_id"))
-                .chunkIndex(d.getMetadata().get("chunk_index") instanceof Number n ? n.intValue() : null)
-                .score(d.getScore())
-                .build()).toList();
     }
 
     /**
@@ -160,5 +150,19 @@ public class RagChatService {
                             : "抱歉，模型暂时不可用，以下是与问题相关的知识库片段：\n" + String.join("\n---\n", context.getChunks());
                     return Flux.just(fallback);
                 });
+    }
+
+    /** 引用精准定位：从命中文档元数据提取来源文档 / 片段序号 / 相似度分 */
+    private List<ChunkReference> toReferences(List<Document> documents) {
+        if (documents == null) {
+            return List.of();
+        }
+        return documents.stream().map(d -> ChunkReference.builder()
+                .content(d.getText())
+                .documentName((String) d.getMetadata().get("file_name"))
+                .documentId((String) d.getMetadata().get("doc_id"))
+                .chunkIndex(d.getMetadata().get("chunk_index") instanceof Number n ? n.intValue() : null)
+                .score(d.getScore())
+                .build()).toList();
     }
 }

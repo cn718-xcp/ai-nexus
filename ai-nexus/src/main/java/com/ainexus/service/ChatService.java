@@ -37,6 +37,7 @@ public class ChatService {
     private final ModelRouteContext routeContext;
     private final ChatHistoryService chatHistoryService;
     private final ModelCallResilienceTemplate resilience;
+    private final com.ainexus.ai.resilience.ModelCallGate gate;
     private final AiCallEventPublisher eventPublisher;
 
     /**
@@ -58,11 +59,12 @@ public class ChatService {
         // 单元素数组承载响应元数据（模型名 / token 用量），避免为 lambda 引入包装类
         ChatResponse[] holder = new ChatResponse[1];
         ModelCallResilienceTemplate.ResilienceResult<String> result = resilience.execute(
-                () -> {
+                ModelScene.CHAT.name(),
+                () -> gate.call(() -> {
                     ChatResponse response = chatModel.call(new Prompt(messages));
                     holder[0] = response;
                     return response.getResult().getOutput().getText();
-                },
+                }),
                 "static-reply",
                 () -> "抱歉，模型暂时不可用，请稍后再试。");
 

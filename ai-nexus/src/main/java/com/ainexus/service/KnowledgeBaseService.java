@@ -1,6 +1,7 @@
 package com.ainexus.service;
 
 import com.ainexus.ai.chunk.TextChunker;
+import com.ainexus.ai.rag.RetrievalCacheService;
 import com.ainexus.common.api.ErrorCode;
 import com.ainexus.common.exception.BizException;
 import cn.hutool.crypto.digest.DigestUtil;
@@ -34,6 +35,8 @@ public class KnowledgeBaseService {
     private final KnowledgeBaseRepository kbRepository;
     private final KnowledgeDocumentRepository docRepository;
     private final VectorStore vectorStore;
+    private final RetrievalCacheService retrievalCache;
+    private final org.redisson.api.RedissonClient redissonClient;
     private final TextChunker chunker = new TextChunker(800, 100);
 
     @Transactional
@@ -79,11 +82,32 @@ public class KnowledgeBaseService {
 
     /**
      * 上传文档：扩展名校验 -> 解析 -> 切分 -> 带元数据向量化入库（knowledge_base_name / doc_id 元数据用于检索过滤与删除）。
+     * Redisson 分布式锁按 kbId 串行化，防止并发上传导致向量与元数据不一致。
      */
     @Transactional
     public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file, Long userId) {
         KnowledgeBase kb = requireOwnedKb(kbId, userId);
         validateExtension(file);
+        org.redisson.api.RLock lock = redissonClient.getLock("ainexus:lock:kb:" + kbId);
+        boolean locked = false;
+        try {
+            // 等待 30s / 自动释放 120s（防止持有者宕机死锁）
+            locked = lock.tryLock(30, 120, java.util.concurrent.TimeUnit.SECONDS);
+            if (!locked) {
+                throw new BizException(ErrorCode.BIZ_ERROR, "该知识库正在处理其他操作，请稍后再试");
+            }
+            return doUpload(kb, file);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");
+        } finally {
+            if (locked) {
+                lock.unlock();
+            }
+        }
+    }
+
+    private KnowledgeDocument doUpload(KnowledgeBase kb, MultipartFile file) {
         String text;
         try {
             text = new String(file.getBytes(), StandardCharsets.UTF_8);
@@ -110,7 +134,7 @@ public class KnowledgeBaseService {
         vectorStore.add(documents);
 
         KnowledgeDocument doc = KnowledgeDocument.builder()
-                .kbId(kbId)
+                .kbId(kb.getId())
                 .fileName(fileName)
                 .docUuid(docUuid)
                 .charCount((long) text.length())
@@ -118,7 +142,10 @@ public class KnowledgeBaseService {
                 .status(1)
                 .build();
         log.info("[kb] document ingested, kb={}, file={}, chunks={}", kb.getName(), doc.getFileName(), chunks.size());
-        return docRepository.save(doc);
+        KnowledgeDocument saved = docRepository.save(doc);
+        // 缓存主动失效：该知识库的检索缓存版本自增
+        retrievalCache.bumpVersion(kb.getName());
+        return saved;
     }
 
     /** 扩展名白名单校验：双扩展名（如 a.pdf.txt 取 txt）按最后一个后缀判断 */
@@ -135,21 +162,36 @@ public class KnowledgeBaseService {
     @Transactional
     public void delete(Long kbId, Long userId) {
         KnowledgeBase kb = requireOwnedKb(kbId, userId);
-        List<KnowledgeDocument> docs = docRepository.findByKbIdOrderByCreatedAtDesc(kbId);
-        for (KnowledgeDocument doc : docs) {
-            List<String> chunkIds = new ArrayList<>(doc.getChunkCount());
-            for (int i = 0; i < doc.getChunkCount(); i++) {
-                chunkIds.add(UUID.nameUUIDFromBytes((doc.getDocUuid() + ":" + i)
-                        .getBytes(StandardCharsets.UTF_8)).toString());
+        org.redisson.api.RLock lock = redissonClient.getLock("ainexus:lock:kb:" + kbId);
+        boolean locked = false;
+        try {
+            locked = lock.tryLock(30, 120, java.util.concurrent.TimeUnit.SECONDS);
+            if (!locked) {
+                throw new BizException(ErrorCode.BIZ_ERROR, "该知识库正在处理其他操作，请稍后再试");
             }
-            // chunkCount 为 0 的脏数据会导致空列表删除调用异常，跳过
-            if (!chunkIds.isEmpty()) {
-                vectorStore.delete(chunkIds);
+            List<KnowledgeDocument> docs = docRepository.findByKbIdOrderByCreatedAtDesc(kbId);
+            for (KnowledgeDocument doc : docs) {
+                List<String> chunkIds = new ArrayList<>(doc.getChunkCount());
+                for (int i = 0; i < doc.getChunkCount(); i++) {
+                    chunkIds.add(UUID.nameUUIDFromBytes((doc.getDocUuid() + ":" + i)
+                            .getBytes(StandardCharsets.UTF_8)).toString());
+                }
+                // chunkCount 为 0 的脏数据会导致空列表删除调用异常，跳过
+                if (!chunkIds.isEmpty()) {
+                    vectorStore.delete(chunkIds);
+                }
+            }
+            docRepository.deleteAll(docs);
+            kbRepository.delete(kb);
+            log.info("[kb] knowledge base deleted, name={}, docs={}", kb.getName(), docs.size());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");
+        } finally {
+            if (locked) {
+                lock.unlock();
             }
         }
-        docRepository.deleteAll(docs);
-        kbRepository.delete(kb);
-        log.info("[kb] knowledge base deleted, name={}, docs={}", kb.getName(), docs.size());
     }
 
     @Transactional(readOnly = true)

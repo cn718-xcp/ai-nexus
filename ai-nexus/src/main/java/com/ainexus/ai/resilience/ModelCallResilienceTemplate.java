@@ -1,14 +1,19 @@
 package com.ainexus.ai.resilience;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * 模型调用弹性模板：超时控制 + 指数退避重试 + 降级兜底。
- * 轻量自研实现（针对本地模型场景，避免引入重型熔断框架），
- * 重试仅在非幂等安全允许范围内执行，降级器返回兜底策略结果。
+ * 模型调用弹性模板：排队并发管控 + 超时重试(指数退避) + 熔断 + 降级兜底。
+ * - 熔断：按场景维度注册 CircuitBreaker，`ainexus.resilience.circuit-enabled` 开启（dev 默认关闭保持原行为）
+ * - 重试与降级：始终生效
+ * 熔断打开时跳过主调用直接降级（fail-fast），避免雪崩式无效重试。
  */
 @Slf4j
 @Component
@@ -17,11 +22,52 @@ public class ModelCallResilienceTemplate {
     private static final int MAX_RETRIES = 2;
     private static final long BASE_BACKOFF_MS = 300;
 
+    private final boolean circuitEnabled;
+    private final int circuitWindow;
+    private final double circuitFailureRate;
+    private final long circuitOpenSeconds;
+
+    /** scene -> 熔断器注册表 */
+    private final Map<String, CircuitBreaker> breakers = new ConcurrentHashMap<>();
+
+    public ModelCallResilienceTemplate(
+            @Value("${ainexus.resilience.circuit-enabled:false}") boolean circuitEnabled,
+            @Value("${ainexus.resilience.circuit-window:10}") int circuitWindow,
+            @Value("${ainexus.resilience.circuit-failure-rate:0.6}") double circuitFailureRate,
+            @Value("${ainexus.resilience.circuit-open-seconds:30}") long circuitOpenSeconds) {
+        this.circuitEnabled = circuitEnabled;
+        this.circuitWindow = circuitWindow;
+        this.circuitFailureRate = circuitFailureRate;
+        this.circuitOpenSeconds = circuitOpenSeconds;
+    }
+
     /**
-     * @param primary       主调用（含超时包裹）
-     * @param fallbackName  降级说明（用于日志与统计）
-     * @param fallback      降级逻辑
-     * @return ResilienceResult：result + 是否走了降级
+     * 带熔断的弹性调用（推荐入口）。
+     *
+     * @param scene      场景名（CHAT/RAG/AGENT...，熔断器维度）
+     * @param primary    主调用
+     * @param fallbackName 降级说明（日志/埋点）
+     * @param fallback   降级逻辑
+     */
+    public <T> ResilienceResult<T> execute(String scene, Supplier<T> primary, String fallbackName, Supplier<T> fallback) {
+        CircuitBreaker breaker = null;
+        if (circuitEnabled) {
+            breaker = breakers.computeIfAbsent(scene,
+                    s -> new CircuitBreaker(s, circuitWindow, circuitFailureRate, Duration.ofSeconds(circuitOpenSeconds)));
+            if (!breaker.tryAcquire()) {
+                log.warn("[resilience] {} circuit OPEN, skip primary call", scene);
+                return new ResilienceResult<>(fallback.get(), true, 0);
+            }
+        }
+        ResilienceResult<T> result = execute(primary, fallbackName, fallback);
+        if (breaker != null) {
+            breaker.onResult(!result.fallback());
+        }
+        return result;
+    }
+
+    /**
+     * 基础弹性调用：重试（指数退避）+ 降级兜底。
      */
     public <T> ResilienceResult<T> execute(Supplier<T> primary, String fallbackName, Supplier<T> fallback) {
         long start = System.currentTimeMillis();

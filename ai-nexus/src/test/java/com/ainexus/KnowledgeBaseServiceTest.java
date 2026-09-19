@@ -13,6 +13,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.mock.web.MockMultipartFile;
@@ -32,6 +34,7 @@ import static org.mockito.Mockito.when;
  * 知识库服务单元测试：Collection 名规范化、扩展名校验、Chunk ID 确定性、级联删除。
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class KnowledgeBaseServiceTest {
 
     @Mock
@@ -43,11 +46,22 @@ class KnowledgeBaseServiceTest {
     @Mock
     private VectorStore vectorStore;
 
+    @Mock
+    private com.ainexus.ai.rag.RetrievalCacheService retrievalCache;
+
+    @Mock
+    private org.redisson.api.RedissonClient redissonClient;
+
     private KnowledgeBaseService service;
 
     @BeforeEach
-    void setUp() {
-        service = new KnowledgeBaseService(kbRepository, docRepository, vectorStore);
+    void setUp() throws InterruptedException {
+        service = new KnowledgeBaseService(kbRepository, docRepository, vectorStore, retrievalCache, redissonClient);
+        // 分布式锁：单测环境直接放行
+        org.redisson.api.RLock lock = org.mockito.Mockito.mock(org.redisson.api.RLock.class);
+        org.mockito.Mockito.when(redissonClient.getLock(org.mockito.ArgumentMatchers.anyString())).thenReturn(lock);
+        org.mockito.Mockito.when(lock.tryLock(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(true);
     }
 
     @Test
