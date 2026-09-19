@@ -1,6 +1,7 @@
 package com.ainexus.ai.route;
 
 import lombok.extern.slf4j.Slf4j;
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
@@ -21,16 +22,19 @@ public class SceneModelRouteStrategy implements ModelRouteStrategy {
     private final ModelRouteProperties properties;
     private final OllamaApi ollamaApi;
     private final OllamaChatModel primaryChatModel;
+    private final ObservationRegistry observationRegistry;
 
     /** modelKey -> 预构建的 ChatModel（工厂缓存） */
     private final Map<String, ChatModel> modelFactory = new ConcurrentHashMap<>();
 
     public SceneModelRouteStrategy(ModelRouteProperties properties,
                                    OllamaChatModel primaryChatModel,
-                                   OllamaApi ollamaApi) {
+                                   OllamaApi ollamaApi,
+                                   ObservationRegistry observationRegistry) {
         this.properties = properties;
         this.primaryChatModel = primaryChatModel;
         this.ollamaApi = ollamaApi;
+        this.observationRegistry = observationRegistry;
     }
 
     @Override
@@ -51,9 +55,11 @@ public class SceneModelRouteStrategy implements ModelRouteStrategy {
             return primaryChatModel;
         }
         log.info("[model-factory] creating ChatModel for {}", modelName);
+        // 挂载与主模型相同的 ObservationRegistry，保证非默认模型的观测指标（耗时/token）不缺失
         return OllamaChatModel.builder()
                 .ollamaApi(ollamaApi)
                 .options(OllamaChatOptions.builder().model(modelName).build())
+                .observationRegistry(observationRegistry)
                 .build();
     }
 }
