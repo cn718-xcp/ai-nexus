@@ -1,0 +1,161 @@
+# =====================================================================
+# AI Nexus 一键编排：应用 + MySQL 8.0 + Redis + Milvus(etcd+minio)
+# 使用：cp deploy/.env.example .env && docker compose up -d
+# 端口默认避开宿主机常用端口，均可在 .env 中调整
+# =====================================================================
+name: ai-nexus
+
+services:
+  # ---------------- 应用服务 ----------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_PORT: 8080
+    image: ai-nexus:latest
+    container_name: ai-nexus-app
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # 数据库 / Redis / Milvus 均走 compose 内部网络服务名
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DB: ${MYSQL_DATABASE:-ai_nexus}
+      MYSQL_USER: ${MYSQL_USER:-ainexus}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ainexus123}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+      MILVUS_USER: ${MILVUS_USER:-root}
+      MILVUS_PASSWORD: ${MILVUS_PASSWORD:-milvus}
+      # 默认使用宿主机 Ollama（docker 只编排应用与存储，模型服务不进容器可复用本机已拉取的模型）
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      TZ: Asia/Shanghai
+    ports:
+      - "${APP_PORT:-8081}:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------- MySQL 8.0（元数据/对话历史/调用流水） ----------------
+  mysql:
+    image: mysql:8.0
+    container_name: ai-nexus-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_nexus}
+      MYSQL_USER: ${MYSQL_USER:-ainexus}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ainexus123}
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${MYSQL_PORT:-33061}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------- Redis（限流/幂等/缓存/分布式锁） ----------------
+  redis:
+    image: redis:7-alpine
+    container_name: ai-nexus-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-16379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------- Milvus 依赖：etcd（元数据） + minio（对象存储） ----------------
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+    container_name: ai-nexus-etcd
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls=http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd-data:/etcd
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    container_name: ai-nexus-minio
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+    command: minio server /minio_data
+    ports:
+      - "${MINIO_PORT:-19090}:9000"
+    volumes:
+      - minio-data:/minio_data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------- Milvus standalone（向量存储） ----------------
+  milvus:
+    image: milvusdb/milvus:v2.5.4
+    container_name: ai-nexus-milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      # 单机嵌入式运行参数：关闭不需要的组件，控制资源占用
+      COMMON_STORAGETYPE: remote
+    ports:
+      - "${MILVUS_PORT:-19531}:19530"
+      - "${MILVUS_METRICS_PORT:-19091}:9091"
+    volumes:
+      - milvus-data:/var/lib/milvus
+    depends_on:
+      - etcd
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9091/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+
+  # ---------------- Ollama（可选：--profile models 启用，模型入容器） ----------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai-nexus-ollama
+    profiles: ["models"]
+    ports:
+      - "${OLLAMA_PORT:-11435}:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  redis-data:
+  etcd-data:
+  minio-data:
+  milvus-data:
+  ollama-models:
