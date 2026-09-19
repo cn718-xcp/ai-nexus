@@ -1,0 +1,19 @@
+# 构建产物
+target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# 日志
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

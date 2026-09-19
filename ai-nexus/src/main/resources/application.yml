@@ -1,0 +1,108 @@
+# =====================================================================
+# AI Nexus 主配置（公共）
+# 环境差异见 application-dev.yml / application-prod.yml
+# =====================================================================
+spring:
+  application:
+    name: ai-nexus
+  profiles:
+    active: dev   # 默认开发环境，生产通过 --spring.profiles.active=prod 覆盖
+  servlet:
+    multipart:
+      max-file-size: 10MB      # 上传文档上限
+      max-request-size: 20MB
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:                    # 连接池（生产级参数）
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      max-lifetime: 1800000
+  jpa:
+    hibernate:
+      ddl-auto: none           # DDL 由 sql/schema.sql 管理，禁止自动建表
+    open-in-view: false        # 关闭 OSIV，避免长事务持有连接
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  sql:
+    init:
+      mode: always             # 启动时执行建表脚本（幂等：CREATE TABLE IF NOT EXISTS）
+      platform: mysql
+      schema-locations: classpath:sql/schema.sql
+
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        options:
+          model: qwen2.5:7b    # 默认对话模型（本地 Ollama）
+          temperature: 0.7
+      embedding:
+        options:
+          model: nomic-embed-text   # 向量模型，需先执行: ollama pull nomic-embed-text
+    vectorstore:
+      milvus:
+        client:
+          host: localhost
+          port: 19530
+          username: root
+          password: milvus
+        databaseName: default
+        collectionName: ai_nexus_kb          # 统一 Collection，按元数据过滤隔离知识库
+                                             # 注意：本 Collection 由应用按 embedding-dimension 自动创建；
+                                             # 若该名称已存在且维度不符，请手动 drop 或更换名称
+        embedding-dimension: 768             # nomic-embed-text 输出维度
+        metricType: COSINE
+        initialize-schema: true              # 首次启动自动建 Collection
+
+# ---------------------------------------------------------------------
+# AI Nexus 业务配置
+# ---------------------------------------------------------------------
+ainexus:
+  model-route:                     # 多模型路由：场景 -> 模型名（策略模式配置源）
+    default-model: qwen2.5:7b
+    routes:
+      CHAT: qwen2.5:7b
+      RAG: qwen2.5:7b
+      AGENT: qwen2.5:7b
+      MULTIMODAL: llava:7b         # 多模态模型，需: ollama pull llava:7b
+
+# ---------------------------------------------------------------------
+# 可观测（Actuator + Micrometer + Spring AI Observation）
+# ---------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  observations:
+    annotations:
+      enabled: true                # 开启 @Observed/@Observed 注解观测
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# ---------------------------------------------------------------------
+# 日志规范：文件滚动 + 控制台；生产环境 file appender 生效
+# ---------------------------------------------------------------------
+logging:
+  level:
+    root: INFO
+    com.ainexus: DEBUG
+    org.springframework.ai: INFO
+  pattern:
+    # 带 traceId/spanId 的观测日志格式
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-}/%X{spanId:-}] %logger{40} - %msg%n"
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+
+server:
+  port: 8080
+  tomcat:
+    threads:
+      max: 200

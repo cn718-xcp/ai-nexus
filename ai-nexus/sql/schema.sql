@@ -1,0 +1,59 @@
+-- =====================================================================
+-- AI Nexus MySQL 建表脚本（幂等，可重复执行）
+-- =====================================================================
+CREATE DATABASE IF NOT EXISTS ai_nexus DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE ai_nexus;
+
+-- 知识库元数据
+CREATE TABLE IF NOT EXISTS knowledge_base (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name            VARCHAR(64)  NOT NULL COMMENT '知识库名称，业务唯一',
+    description     VARCHAR(512) NULL COMMENT '描述',
+    collection_name VARCHAR(128) NOT NULL COMMENT 'Milvus Collection 名称',
+    status          INT          NOT NULL DEFAULT 1 COMMENT '状态：1-启用 0-禁用',
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME     NULL ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_name (name)
+) ENGINE = InnoDB COMMENT '知识库';
+
+-- 知识库文档
+CREATE TABLE IF NOT EXISTS knowledge_document (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    kb_id        BIGINT       NOT NULL COMMENT '所属知识库',
+    file_name    VARCHAR(256) NOT NULL COMMENT '文件名',
+    doc_uuid     VARCHAR(64)  NOT NULL COMMENT '向量库 Chunk ID 前缀',
+    char_count   BIGINT       NOT NULL COMMENT '原始字符数',
+    chunk_count  INT          NOT NULL COMMENT '切分 Chunk 数',
+    status       INT          NOT NULL DEFAULT 0 COMMENT '0-处理中 1-已入库 2-失败',
+    error_message VARCHAR(512) NULL,
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_kb_id (kb_id)
+) ENGINE = InnoDB COMMENT '知识库文档';
+
+-- 对话历史
+CREATE TABLE IF NOT EXISTS chat_message (
+    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id VARCHAR(64) NOT NULL COMMENT '会话 ID',
+    role       VARCHAR(16) NOT NULL COMMENT 'user/assistant/system',
+    content    TEXT        NOT NULL,
+    model_name VARCHAR(64) NULL COMMENT '实际路由模型',
+    created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_session_created (session_id, created_at)
+) ENGINE = InnoDB COMMENT '对话历史';
+
+-- AI 调用流水（统计）
+CREATE TABLE IF NOT EXISTS ai_call_log (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    scene             VARCHAR(32)  NOT NULL COMMENT 'CHAT/RAG/AGENT/MULTIMODAL',
+    model_name        VARCHAR(64)  NOT NULL,
+    session_id        VARCHAR(64)  NULL,
+    success           INT          NOT NULL,
+    cost_ms           BIGINT       NOT NULL,
+    prompt_tokens     BIGINT       NULL,
+    completion_tokens BIGINT       NULL,
+    fallback          INT          NOT NULL DEFAULT 0,
+    error_message     VARCHAR(512) NULL,
+    call_date         VARCHAR(10)  NOT NULL COMMENT '调用日期 yyyy-MM-dd',
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_scene_day (scene, call_date)
+) ENGINE = InnoDB COMMENT 'AI 调用流水';

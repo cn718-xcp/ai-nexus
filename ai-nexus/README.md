@@ -1,0 +1,156 @@
+# AI Nexus — 基于 Spring Boot 4.0.0 + Spring AI 2.0.1 GA 的生产级 AI 应用平台
+
+> 面向大厂简历的生产级 Java 后端项目：知识库管理、RAG 检索增强问答、多模型路由、Function Calling 工具调用、多模态图片理解、结构化输出、调用统计，以及限流 / 幂等 / 重试 / 降级 / 可观测等完整生产级规范。
+
+## 一、技术栈
+
+| 层次 | 技术 |
+|---|---|
+| 基础框架 | JDK 17 · Spring Boot 4.0.0 · Maven |
+| AI 框架 | Spring AI 2.0.1 GA（ChatClient / Ollama / Milvus / Tool Calling / Structured Output / Observation） |
+| 模型 | Ollama：`qwen2.5:7b`（对话/RAG/Agent）、`nomic-embed-text`（Embedding）、`llava:7b`（多模态） |
+| 存储 | MySQL 8.0（元数据/对话历史/调用流水，JPA）· Milvus（向量存储）· Redis（Redisson：限流/幂等） |
+| 工程化 | SpringDoc OpenAPI 3 · Lombok · Hutool · Validation · AOP · Actuator + Micrometer（Prometheus） |
+
+## 二、架构说明
+
+```
+                          ┌────────────────────────────────────────────┐
+                          │              Controller 层                 │
+                          │  限流(RRateLimiter) / 幂等(SET NX) / 校验   │
+                          └───────────────┬────────────────────────────┘
+                                          │
+        ┌─────────────────────────────────┼──────────────────────────────────┐
+        │                     Service 层（AI 核心编排）                        │
+        │  ┌──────────────┐ ┌───────────────────────┐ ┌────────────────────┐ │
+        │  │ ChatService  │ │    RagChatService     │ │   AgentService     │ │
+        │  │ 多轮上下文    │ │  模板方法 RAG 流水线   │ │ Function Calling   │ │
+        │  └──────┬───────┘ └──────────┬────────────┘ └─────────┬──────────┘ │
+        │         │        ┌───────────▼──────────┐             │            │
+        │         │        │ AbstractRagPipeline  │             │            │
+        │         │        │ 预处理→检索→组装→后置 │             │            │
+        │         │        └───────────┬──────────┘             │            │
+        │  ┌──────▼────────────────────▼────────────────────────▼──────────┐ │
+        │  │     ModelRouteContext（策略模式多模型路由 + 工厂缓存）          │ │
+        │  └──────────────────────────┬────────────────────────────────────┘ │
+        │  ┌──────────────────────────▼────────────────────────────────────┐ │
+        │  │  ModelCallResilienceTemplate：重试(指数退避) / 超时 / 降级      │ │
+        │  └───────────────────────────────────────────────────────────────┘ │
+        └─────────────────────────────────┬──────────────────────────────────┘
+                                          │
+   ┌──────────────┬──────────────┬────────┴───────┬──────────────────┐
+   │   Milvus     │    MySQL     │     Redis      │  Ollama(模型)    │
+   │  向量存储     │ 元数据/历史   │ 限流/幂等       │ qwen2.5/llava    │
+   └──────────────┴──────────────┴────────────────┴──────────────────┘
+        异步旁路：AiCallEvent → ai_call_log 落库 → /stats 统计；Micrometer → Prometheus
+```
+
+### 设计模式落点
+- **策略模式**（多模型路由）：`ModelRouteStrategy` 接口 + `SceneModelRouteStrategy` 场景路由实现 + `ModelRouteContext` 上下文选择，路由规则由 `application.yml` 配置驱动。
+- **模板方法**（RAG 流水线）：`AbstractRagPipeline#run` 固定骨架（预处理→向量检索→提示词组装→后置处理），子类可覆写各阶段。
+- **工厂模式**（向量/模型客户端）：`SceneModelRouteStrategy` 按"同名模型复用"惰性构建并缓存 ChatModel；文档入库以确定性 ID 生成向量 Chunk。
+
+### Spring AI 2.0.1 GA 特性体现
+- **结构化输出**：`ChatClient.call().entity(Class)` / `ListOutputConverter`（`StructuredOutputService`）。
+- **工具调用（Agent）**：`@Tool` 注解式工具 + `MethodToolCallbackProvider`，框架内置工具循环。
+- **模型观测**：Micrometer Observation 贯穿模型调用，`/actuator/prometheus` 暴露指标，日志带 traceId/spanId。
+
+### 生产级规范
+- 统一返回体 `ApiResponse` + 错误码枚举 `ErrorCode`（A/B/C/D 段位）+ 全局异常处理 + JSR-303 参数校验。
+- 接口限流：Redisson 令牌桶（`@RateLimit`，SpEL 维度 + IP 兜底）。
+- 幂等控制：Redis SET NX 请求摘要抢占（`@Idempotent`）。
+- 模型调用弹性：重试（指数退避）→ 降级（返回知识片段兜底）→ 全链路埋点。
+- 可观测：Actuator 健康检查、Prometheus 指标、trace 日志格式。
+- 多环境：dev / prod Profile，敏感配置环境变量注入。
+
+## 三、启动步骤
+
+### 1. 前置依赖
+```bash
+# Ollama 模型（embedding 模型为 RAG 必需）
+ollama pull qwen2.5:7b
+ollama pull nomic-embed-text
+ollama pull llava:7b          # 多模态功能需要
+
+# Milvus（standalone，host: localhost, port: 19530, root/milvus）
+# Redis
+# MySQL 8.0（schema.sql 幂等，启动时自动建库建表）
+```
+
+### 2. 修改数据库连接
+编辑 `src/main/resources/application-dev.yml` 中的 MySQL 账号密码。
+
+### 3. 构建 & 启动
+```bash
+mvn clean package -DskipTests
+java -jar target/ai-nexus.jar --spring.profiles.active=dev
+# 开发态：mvn spring-boot:run
+```
+
+启动后访问 Swagger：http://localhost:8080/swagger-ui.html
+
+## 四、接口示例
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | /api/v1/kb | 创建知识库 |
+| POST | /api/v1/kb/{kbId}/documents | 上传文档（txt/md/json/csv）切分入库 |
+| GET | /api/v1/kb | 知识库列表 |
+| POST | /api/v1/rag/ask | RAG 问答（含引用片段） |
+| POST | /api/v1/rag/stream | RAG 流式问答（SSE） |
+| POST | /api/v1/chat | 多轮对话（限流+幂等） |
+| POST | /api/v1/chat/extract | 结构化输出：信息抽取 |
+| POST | /api/v1/agent/invoke | Agent 工具调用 |
+| POST | /api/v1/agent/vision | 多模态图片理解 |
+| GET | /api/v1/stats/overview | 调用统计总览 |
+
+```bash
+# 创建知识库
+curl -X POST http://localhost:8080/api/v1/kb \
+  -H 'Content-Type: application/json' -d '{"name":"产品手册","description":"产品使用文档"}'
+
+# 上传文档（kbId=1）
+curl -X POST http://localhost:8080/api/v1/kb/1/documents -F 'file=@./manual.txt'
+
+# RAG 问答
+curl -X POST http://localhost:8080/api/v1/rag/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"产品如何初始化？","knowledgeBaseName":"产品手册","topK":5}'
+
+# Agent 工具调用（模型自主调用 getWeather / getCurrentTime）
+curl -X POST http://localhost:8080/api/v1/agent/invoke \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"北京今天天气怎么样？","sessionId":"s-001"}'
+
+# 多模态
+curl -X POST http://localhost:8080/api/v1/agent/vision -F 'image=@./cat.png' -F 'question=图里是什么动物？'
+
+# 统计
+curl http://localhost:8080/api/v1/stats/overview
+```
+
+## 五、单元测试
+
+```bash
+mvn test
+```
+覆盖：文本切分器（切分长度/overlap/边界）、多模型路由策略选择、RAG 流水线（检索参数与过滤表达式、提示词组装、空检索兜底）、统一响应体与错误码。
+
+## 六、目录结构
+
+```
+ai-nexus
+├── pom.xml
+├── sql/schema.sql
+├── src/main/java/com/ainexus
+│   ├── AiNexusApplication.java
+│   ├── common/        # 统一返回体、错误码、异常、限流、幂等、常量
+│   ├── config/        # Redisson、OpenAPI、异步线程池
+│   ├── ai/            # route(策略)/pipeline(模板方法)/tools/resilience/memory/chunk/stats
+│   ├── domain/        # JPA 实体与仓库
+│   ├── dto/           # 请求/响应对象
+│   ├── service/       # 业务编排
+│   └── controller/    # REST 接口
+├── src/main/resources # application.yml（全量注释）+ dev/prod + sql
+└── src/test/java      # 单元测试
+```

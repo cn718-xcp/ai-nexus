@@ -1,0 +1,16 @@
+# =====================================================================
+# 开发环境
+# =====================================================================
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/ai_nexus?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: "2626"          # 按本机 MySQL 修改
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+logging:
+  level:
+    com.ainexus: DEBUG
