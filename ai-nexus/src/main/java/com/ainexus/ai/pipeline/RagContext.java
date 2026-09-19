@@ -3,6 +3,7 @@ package com.ainexus.ai.pipeline;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
+import org.springframework.ai.document.Document;
 
 import java.util.List;
 
@@ -34,6 +35,9 @@ public class RagContext {
 
     /** 检索到的文档片段文本 */
     private List<String> chunks;
+
+    /** 检索命中的原始文档（含 score/metadata），供引用精准定位与重排使用 */
+    private List<Document> documents;
 
     /** 最终组装好的提示词 */
     private String finalPrompt;

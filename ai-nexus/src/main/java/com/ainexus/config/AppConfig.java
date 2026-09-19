@@ -13,7 +13,9 @@ import java.util.concurrent.Executor;
  */
 @Configuration
 @EnableAsync
-@EnableConfigurationProperties({com.ainexus.ai.route.ModelRouteProperties.class, com.ainexus.common.auth.JwtProperties.class})
+@EnableConfigurationProperties({com.ainexus.ai.route.ModelRouteProperties.class,
+        com.ainexus.common.auth.JwtProperties.class,
+        com.ainexus.ai.rag.RagProperties.class})
 public class AppConfig {
 
     @Bean("aiCallExecutor")

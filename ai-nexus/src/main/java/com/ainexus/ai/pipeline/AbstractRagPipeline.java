@@ -43,8 +43,17 @@ public abstract class AbstractRagPipeline {
         context.setRewrittenQuery(context.getQuestion());
     }
 
-    /** 阶段二：向量检索 —— 相似度阈值 + topK，可选按知识库过滤 */
+    /** 阶段二：向量检索骨架 —— 子类通过覆写 doSearch/refine 接入混合检索与重排 */
     protected void retrieve(RagContext context) {
+        List<Document> documents = refine(context, doSearch(context));
+        context.setDocuments(documents);
+        context.setChunks(documents == null ? List.of() : documents.stream()
+                .map(Document::getText)
+                .collect(Collectors.toList()));
+    }
+
+    /** 召回：默认纯向量 topK（子类可做混合检索多路召回） */
+    protected List<Document> doSearch(RagContext context) {
         SearchRequest.Builder builder = SearchRequest.builder()
                 .query(context.getRewrittenQuery())
                 .topK(context.getTopK())
@@ -55,9 +64,12 @@ public abstract class AbstractRagPipeline {
                     .eq("knowledge_base_name", context.getKnowledgeBaseName()).build());
         }
         List<Document> documents = vectorStore.similaritySearch(builder.build());
-        context.setChunks(documents == null ? List.of() : documents.stream()
-                .map(Document::getText)
-                .collect(Collectors.toList()));
+        return documents == null ? List.of() : documents;
+    }
+
+    /** 精排：默认截断 topK（子类可接入重排器 / RRF 融合） */
+    protected List<Document> refine(RagContext context, List<Document> candidates) {
+        return candidates.size() > context.getTopK() ? candidates.subList(0, context.getTopK()) : candidates;
     }
 
     /** 阶段三：提示词组装 —— 系统约束 + 多轮历史 + 检索片段 + 用户问题 */

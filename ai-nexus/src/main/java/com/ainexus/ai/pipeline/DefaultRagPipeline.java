@@ -1,16 +1,73 @@
 package com.ainexus.ai.pipeline;
 
 import com.ainexus.ai.memory.ChatHistoryService;
+import com.ainexus.ai.rag.EmbeddingReranker;
+import com.ainexus.ai.rag.HybridRetriever;
+import com.ainexus.ai.rag.RagProperties;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
- * 默认 RAG 流水线实现。
+ * 默认 RAG 流水线：在模板骨架基础上接入检索进阶能力（均为可选开关）。
+ * - 混合模式：向量过召回 + 关键词重打分 RRF 融合
+ * - 重排：Embedding 余弦二阶段精排
+ * - 关闭时行为与纯向量 topK 检索完全一致（向后兼容）
  */
+@Slf4j
 @Component
 public class DefaultRagPipeline extends AbstractRagPipeline {
 
-    public DefaultRagPipeline(VectorStore vectorStore, ChatHistoryService chatHistoryService) {
+    private final RagProperties properties;
+    private final EmbeddingReranker reranker;
+    private final HybridRetriever hybridRetriever;
+
+    public DefaultRagPipeline(VectorStore vectorStore,
+                              ChatHistoryService chatHistoryService,
+                              RagProperties properties,
+                              EmbeddingReranker reranker,
+                              HybridRetriever hybridRetriever) {
         super(vectorStore, chatHistoryService);
+        this.properties = properties;
+        this.reranker = reranker;
+        this.hybridRetriever = hybridRetriever;
+    }
+
+    @Override
+    protected List<Document> doSearch(RagContext context) {
+        // 过召回：候选池 = topK * overFetch，为融合与精排留出重排空间
+        int candidateK = Math.max(context.getTopK(), context.getTopK() * properties.getOverFetch());
+        SearchRequest.Builder builder = SearchRequest.builder()
+                .query(context.getRewrittenQuery())
+                .topK(candidateK)
+                .similarityThreshold(0.5);
+        if (context.getKnowledgeBaseName() != null && !context.getKnowledgeBaseName().isBlank()) {
+            builder.filterExpression(new FilterExpressionBuilder()
+                    .eq("knowledge_base_name", context.getKnowledgeBaseName()).build());
+        }
+        List<Document> candidates = vectorStore.similaritySearch(builder.build());
+        List<Document> docs = candidates == null ? List.of() : candidates;
+
+        // 混合模式：RRF 融合语义与字面两路排序
+        if ("hybrid".equalsIgnoreCase(properties.getMode()) && !docs.isEmpty()) {
+            docs = hybridRetriever.fuse(docs, context.getRewrittenQuery(), properties.getRrfK());
+            log.info("[rag] hybrid fusion applied, candidates={}", docs.size());
+        }
+        return docs;
+    }
+
+    @Override
+    protected List<Document> refine(RagContext context, List<Document> candidates) {
+        // 重排：Embedding 余弦精排后截断 topK
+        if (properties.isRerankEnabled() && !candidates.isEmpty()) {
+            return reranker.rerank(context.getRewrittenQuery(), candidates, context.getTopK());
+        }
+        return candidates.size() > context.getTopK()
+                ? candidates.subList(0, context.getTopK()) : candidates;
     }
 }

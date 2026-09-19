@@ -95,19 +95,23 @@ public class KnowledgeBaseService {
         }
 
         String docUuid = UUID.randomUUID().toString();
+        String fileName = file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()
+                ? docUuid : file.getOriginalFilename();
         List<String> chunks = chunker.split(text);
         List<Document> documents = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             // Milvus 主键为 VarChar(36)：用确定性 UUID 保证可复现删除；删除时按相同规则重算
             String chunkId = UUID.nameUUIDFromBytes((docUuid + ":" + i).getBytes(StandardCharsets.UTF_8)).toString();
+            // file_name/chunk_index 元数据用于 RAG 引用精准定位
             documents.add(new Document(chunkId, chunks.get(i),
-                    Map.of("knowledge_base_name", kb.getName(), "doc_id", docUuid)));
+                    Map.of("knowledge_base_name", kb.getName(), "doc_id", docUuid,
+                            "file_name", fileName, "chunk_index", i)));
         }
         vectorStore.add(documents);
 
         KnowledgeDocument doc = KnowledgeDocument.builder()
                 .kbId(kbId)
-                .fileName(file.getOriginalFilename() == null ? docUuid : file.getOriginalFilename())
+                .fileName(fileName)
                 .docUuid(docUuid)
                 .charCount((long) text.length())
                 .chunkCount(chunks.size())

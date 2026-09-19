@@ -74,6 +74,11 @@ ainexus:
     secret: ${JWT_SECRET:change-me-in-production-ai-nexus-jwt-secret-key-2026}
     access-token-minutes: 30       # 访问令牌有效期
     refresh-token-days: 7          # 刷新令牌有效期
+  rag:                             # RAG 检索进阶配置（均为可选，关闭时行为与纯向量 topK 一致）
+    mode: vector                   # 检索模式：vector-纯向量 | hybrid-向量+关键词 RRF 融合
+    rerank-enabled: false          # 二阶段 Embedding 余弦精排（提升头部召回准确率，增加一次批量 Embedding 调用）
+    over-fetch: 3                  # 过召回倍数：候选池 = topK * overFetch
+    rrf-k: 60                      # RRF 融合常数
 
 # ---------------------------------------------------------------------
 # 可观测（Actuator + Micrometer + Spring AI Observation）

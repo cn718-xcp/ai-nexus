@@ -1,6 +1,7 @@
 package com.ainexus.service;
 
 import com.ainexus.ai.memory.ChatHistoryService;
+import com.ainexus.ai.rag.ChunkReference;
 import com.ainexus.ai.pipeline.AbstractRagPipeline;
 import com.ainexus.ai.pipeline.RagContext;
 import com.ainexus.ai.resilience.ModelCallResilienceTemplate;
@@ -15,9 +16,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -80,8 +83,23 @@ public class RagChatService {
                 .sessionId(sid)
                 .answer(result.result())
                 .referencedChunks(context.getChunks())
+                .references(toReferences(context.getDocuments()))
                 .fallback(result.fallback())
                 .build();
+    }
+
+    /** 引用精准定位：从命中文档元数据提取来源文档 / 片段序号 / 相似度分 */
+    private List<ChunkReference> toReferences(List<Document> documents) {
+        if (documents == null) {
+            return List.of();
+        }
+        return documents.stream().map(d -> ChunkReference.builder()
+                .content(d.getText())
+                .documentName((String) d.getMetadata().get("file_name"))
+                .documentId((String) d.getMetadata().get("doc_id"))
+                .chunkIndex(d.getMetadata().get("chunk_index") instanceof Number n ? n.intValue() : null)
+                .score(d.getScore())
+                .build()).toList();
     }
 
     /**

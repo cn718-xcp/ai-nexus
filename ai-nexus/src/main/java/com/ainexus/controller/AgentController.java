@@ -1,6 +1,7 @@
 package com.ainexus.controller;
 
 import com.ainexus.common.api.ApiResponse;
+import com.ainexus.common.auth.CurrentUserResolver;
 import com.ainexus.common.ratelimit.RateLimit;
 import com.ainexus.dto.request.AgentChatRequest;
 import com.ainexus.service.AgentService;
@@ -23,12 +24,13 @@ public class AgentController {
 
     private final AgentService agentService;
     private final MultimodalService multimodalService;
+    private final CurrentUserResolver currentUserResolver;
 
-    @Operation(summary = "Agent 指令（Function Calling：天气/时间等工具）")
+    @Operation(summary = "Agent 多步任务（工具调用 + 知识库检索 + 短期记忆）")
     @PostMapping("/invoke")
     @RateLimit(permits = 10, windowSeconds = 10)
     public ApiResponse<String> invoke(@Valid @RequestBody AgentChatRequest req) {
-        return ApiResponse.ok(agentService.invoke(req.getSessionId(), req.getPrompt()));
+        return ApiResponse.ok(agentService.invoke(req.getSessionId(), req.getPrompt(), currentUserResolver.currentUserId()));
     }
 
     @Operation(summary = "图片理解（多模态，路由至多模态模型）")
