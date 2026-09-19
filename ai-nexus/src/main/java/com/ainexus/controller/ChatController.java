@@ -5,6 +5,7 @@ import com.ainexus.common.idempotent.Idempotent;
 import com.ainexus.common.ratelimit.RateLimit;
 import com.ainexus.dto.request.ChatRequest;
 import com.ainexus.dto.request.KnowledgeBaseCreateRequest;
+import com.ainexus.dto.response.ChatAnswerResponse;
 import com.ainexus.service.ChatService;
 import com.ainexus.service.StructuredOutputService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,10 +31,10 @@ public class ChatController {
     @Operation(summary = "多轮对话（限流 + 幂等）")
     @PostMapping
     @RateLimit(permits = 20, windowSeconds = 10)
-    @Idempotent(key = "#req.sessionId", ttlSeconds = 3)
-    public ApiResponse<Map<String, String>> chat(@Valid @RequestBody ChatRequest req) {
-        String answer = chatService.chat(req.getSessionId(), req.getMessage());
-        return ApiResponse.ok(Map.of("sessionId", req.getSessionId() == null ? "" : req.getSessionId(), "answer", answer));
+    // sessionId 为空时回退到消息内容做幂等维度，避免所有匿名请求共享 "null" Key 互相误杀
+    @Idempotent(key = "#req.sessionId != null ? #req.sessionId : #req.message", ttlSeconds = 3)
+    public ApiResponse<ChatAnswerResponse> chat(@Valid @RequestBody ChatRequest req) {
+        return ApiResponse.ok(chatService.chat(req.getSessionId(), req.getMessage()));
     }
 
     @Operation(summary = "结构化输出：信息抽取（Spring AI 2.0 Structured Output）")

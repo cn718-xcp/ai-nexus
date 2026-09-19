@@ -7,6 +7,7 @@ import com.ainexus.ai.route.ModelScene;
 import com.ainexus.ai.stats.AiCallEvent;
 import com.ainexus.ai.stats.AiCallEventPublisher;
 import com.ainexus.domain.entity.ChatMessageRecord;
+import com.ainexus.dto.response.ChatAnswerResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -38,7 +39,10 @@ public class ChatService {
     private final ModelCallResilienceTemplate resilience;
     private final AiCallEventPublisher eventPublisher;
 
-    public String chat(String sessionId, String message) {
+    /**
+     * 多轮对话：返回服务端最终会话 ID（客户端未传时自动生成，需回传给前端以延续会话）。
+     */
+    public ChatAnswerResponse chat(String sessionId, String message) {
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         ChatModel chatModel = routeContext.route(ModelScene.CHAT);
 
@@ -76,7 +80,7 @@ public class ChatService {
 
         String answer = result.result();
         chatHistoryService.saveAssistant(sid, answer, modelName);
-        return answer;
+        return new ChatAnswerResponse(sid, answer);
     }
 
     private String resolveModelName(ChatModel chatModel, ChatResponse response) {
