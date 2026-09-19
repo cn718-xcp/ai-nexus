@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.redisson.api.RSemaphore;
 import org.redisson.api.RedissonClient;
@@ -81,10 +82,15 @@ class ResilienceTest {
     @Mock
     private RedissonClient redissonClient;
 
+    @Mock
+    private com.ainexus.common.config.DynamicConfigService dynamicConfig;
+
     @Test
-    void shouldPassThroughWhenGateDisabled(@Mock RSemaphore semaphore) throws InterruptedException {
+    void shouldPassThroughWhenGateDisabled(@Mock RSemaphore semaphore) {
+        Mockito.when(dynamicConfig.getNumber(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.any())).thenReturn(0.0);
         when(redissonClient.getSemaphore(anyString())).thenReturn(semaphore);
-        ModelCallGate gate = new ModelCallGate(redissonClient, 0, 1);
+        ModelCallGate gate = new ModelCallGate(redissonClient, 0, 1, dynamicConfig);
         AtomicInteger calls = new AtomicInteger();
         assertEquals(1, gate.call(calls::incrementAndGet));
         assertEquals(1, calls.get(), "maxConcurrent<=0 时应直通");
@@ -92,20 +98,24 @@ class ResilienceTest {
 
     @Test
     void shouldQueueAndReleasePermit(@Mock RSemaphore semaphore) throws InterruptedException {
+        Mockito.when(dynamicConfig.getNumber(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.any())).thenReturn(2.0);
         when(redissonClient.getSemaphore(anyString())).thenReturn(semaphore);
         when(semaphore.trySetPermits(2)).thenReturn(true);
         when(semaphore.tryAcquire(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(java.util.concurrent.TimeUnit.class))).thenReturn(true);
-        ModelCallGate gate = new ModelCallGate(redissonClient, 2, 5);
+        ModelCallGate gate = new ModelCallGate(redissonClient, 2, 5, dynamicConfig);
         assertEquals("ok", gate.call(() -> "ok"));
         org.mockito.Mockito.verify(semaphore).release();
     }
 
     @Test
     void shouldRejectWhenQueueTimeout(@Mock RSemaphore semaphore) throws InterruptedException {
+        Mockito.when(dynamicConfig.getNumber(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.any())).thenReturn(1.0);
         when(redissonClient.getSemaphore(anyString())).thenReturn(semaphore);
         when(semaphore.trySetPermits(1)).thenReturn(true);
         when(semaphore.tryAcquire(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(java.util.concurrent.TimeUnit.class))).thenReturn(false);
-        ModelCallGate gate = new ModelCallGate(redissonClient, 1, 1);
+        ModelCallGate gate = new ModelCallGate(redissonClient, 1, 1, dynamicConfig);
         assertThrows(BizException.class, () -> gate.call(() -> "ok"), "排队超时应快速降级拒绝");
     }
 }

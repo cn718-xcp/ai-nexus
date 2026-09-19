@@ -116,3 +116,16 @@ CREATE TABLE IF NOT EXISTS sys_tenant (
 -- ALTER TABLE chat_message    ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
 -- ALTER TABLE ai_call_log     ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
 -- ALTER TABLE audit_log       ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
+
+-- 动态配置表（运行时配置管控；dynamic.enabled=true 时启用）
+CREATE TABLE IF NOT EXISTS sys_config (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    config_key   VARCHAR(64)  NOT NULL COMMENT '配置键（如 resilience.circuit-failure-rate）',
+    config_value VARCHAR(512) NOT NULL COMMENT '配置值',
+    scope        VARCHAR(16)  NOT NULL DEFAULT 'global' COMMENT 'global-全局 | gray-灰度（仅 gray_tenants 生效）',
+    tenant_id    BIGINT       NULL COMMENT '租户专属配置（优先级最高）',
+    gray_tenants VARCHAR(256) NULL COMMENT '灰度租户 ID 列表（逗号分隔，scope=gray 时生效）',
+    updated_by   VARCHAR(64)  NULL COMMENT '最后修改人',
+    updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_key_tenant (config_key, tenant_id)
+) ENGINE = InnoDB COMMENT '动态配置';

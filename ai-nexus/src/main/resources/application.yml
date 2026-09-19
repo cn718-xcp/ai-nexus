@@ -73,6 +73,8 @@ ainexus:
   tenant:                          # 多租户开关：dev 默认关闭（单租户模式，行为与关闭前完全一致）
     enabled: false
     user-qps: 5                    # 用户级 QPS 限流阈值（0 表示不启用用户维度限流）
+  dynamic:                         # 动态配置中心：DB 配置优先级高于本地 yml（enabled=false 仅读 yml）
+    enabled: false
   model-pool:                      # 模型节点池：多 Ollama 实例集群化（enabled=false 单节点直通）
     enabled: false
     strategy: round_robin          # 负载均衡：round_robin-轮询 | least_connections-最少连接

@@ -24,22 +24,28 @@ public class ModelCallGate {
     private final int maxConcurrent;
     private final int queueTimeoutSeconds;
 
+    private final com.ainexus.common.config.DynamicConfigService dynamicConfig;
+
     public ModelCallGate(RedissonClient redissonClient,
                          @Value("${ainexus.concurrency.model-max:0}") int maxConcurrent,
-                         @Value("${ainexus.concurrency.queue-timeout-seconds:15}") int queueTimeoutSeconds) {
+                         @Value("${ainexus.concurrency.queue-timeout-seconds:15}") int queueTimeoutSeconds,
+                         com.ainexus.common.config.DynamicConfigService dynamicConfig) {
         this.redissonClient = redissonClient;
         this.maxConcurrent = maxConcurrent;
         this.queueTimeoutSeconds = queueTimeoutSeconds;
+        this.dynamicConfig = dynamicConfig;
     }
 
     public <T> T call(Supplier<T> action) {
-        if (maxConcurrent <= 0) {
+        // 并发上限运行时动态读取（配置中心优先，yml 默认兜底）
+        int effectiveMax = (int) dynamicConfig.getNumber("concurrency.model-max", maxConcurrent, null);
+        if (effectiveMax <= 0) {
             // 直通模式：未启用并发管控
             return action.get();
         }
         RSemaphore semaphore = redissonClient.getSemaphore("ainexus:concurrency:model");
-        // trySetPermits 幂等：仅首次设置生效
-        semaphore.trySetPermits(maxConcurrent);
+        // trySetPermits 幂等：仅首次设置生效（调大上限需删除信号量 Key 或重启）
+        semaphore.trySetPermits(effectiveMax);
         boolean acquired;
         try {
             acquired = semaphore.tryAcquire(queueTimeoutSeconds, TimeUnit.SECONDS);

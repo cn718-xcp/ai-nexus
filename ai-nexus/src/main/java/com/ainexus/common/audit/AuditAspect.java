@@ -46,9 +46,9 @@ public class AuditAspect {
         Long userId = currentUserResolver.currentUserId();
         Long tenantId = currentUserResolver.currentTenantId();
         String username = currentUserResolver.currentUsername();
-        String ip = clientIp();
         String target = resolveTarget(audited, pjp);
-        auditWriter.write(userId, tenantId, username, audited.action(), target, ip, success, error);
+        auditWriter.write(userId, tenantId, username, audited.action(), target, null,
+                com.ainexus.common.web.WebUtils.clientIp(), success, error);
     }
 
     private String resolveTarget(Audited audited, JoinPoint pjp) {
@@ -71,13 +71,4 @@ public class AuditAspect {
         }
     }
 
-    private String clientIp() {
-        ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        if (attrs == null) {
-            return null;
-        }
-        HttpServletRequest request = attrs.getRequest();
-        String ip = request.getHeader("X-Forwarded-For");
-        return ip != null && !ip.isBlank() ? ip.split(",")[0].trim() : request.getRemoteAddr();
-    }
 }

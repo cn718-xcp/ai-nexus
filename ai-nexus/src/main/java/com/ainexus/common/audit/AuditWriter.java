@@ -19,7 +19,8 @@ public class AuditWriter {
     }
 
     @Async("aiCallExecutor")
-    public void write(Long userId, Long tenantId, String username, String action, String target, String ip, boolean success, String error) {
+    public void write(Long userId, Long tenantId, String username, String action, String target,
+                      String detail, String ip, boolean success, String error) {
         try {
             repository.save(AuditLog.builder()
                     .operator(username == null ? "anonymous" : username)
@@ -27,7 +28,7 @@ public class AuditWriter {
                     .tenantId(tenantId)
                     .action(action)
                     .target(target)
-                    .detail(error == null ? "success" : "error: " + error)
+                    .detail(detail != null ? detail : (error == null ? "success" : "error: " + error))
                     .clientIp(ip)
                     .success(success ? 1 : 0)
                     .build());

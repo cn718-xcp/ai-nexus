@@ -22,10 +22,13 @@ public class ModelCallResilienceTemplate {
     private static final int MAX_RETRIES = 2;
     private static final long BASE_BACKOFF_MS = 300;
 
+    /** yml 静态默认值（动态配置优先级高于静态默认） */
     private final boolean circuitEnabled;
     private final int circuitWindow;
     private final double circuitFailureRate;
     private final long circuitOpenSeconds;
+
+    private final com.ainexus.common.config.DynamicConfigService dynamicConfig;
 
     /** scene -> 熔断器注册表 */
     private final Map<String, CircuitBreaker> breakers = new ConcurrentHashMap<>();
@@ -34,11 +37,13 @@ public class ModelCallResilienceTemplate {
             @Value("${ainexus.resilience.circuit-enabled:false}") boolean circuitEnabled,
             @Value("${ainexus.resilience.circuit-window:10}") int circuitWindow,
             @Value("${ainexus.resilience.circuit-failure-rate:0.6}") double circuitFailureRate,
-            @Value("${ainexus.resilience.circuit-open-seconds:30}") long circuitOpenSeconds) {
+            @Value("${ainexus.resilience.circuit-open-seconds:30}") long circuitOpenSeconds,
+            com.ainexus.common.config.DynamicConfigService dynamicConfig) {
         this.circuitEnabled = circuitEnabled;
         this.circuitWindow = circuitWindow;
         this.circuitFailureRate = circuitFailureRate;
         this.circuitOpenSeconds = circuitOpenSeconds;
+        this.dynamicConfig = dynamicConfig;
     }
 
     /**
@@ -51,9 +56,15 @@ public class ModelCallResilienceTemplate {
      */
     public <T> ResilienceResult<T> execute(String scene, Supplier<T> primary, String fallbackName, Supplier<T> fallback) {
         CircuitBreaker breaker = null;
-        if (circuitEnabled) {
+        // 熔断参数运行时动态读取（配置中心优先，yml 默认兜底），变更即时生效无需重启
+        boolean dynamicCircuitEnabled = dynamicConfig.getBool(
+                "resilience.circuit-enabled", circuitEnabled, null);
+        if (dynamicCircuitEnabled) {
             breaker = breakers.computeIfAbsent(scene,
-                    s -> new CircuitBreaker(s, circuitWindow, circuitFailureRate, Duration.ofSeconds(circuitOpenSeconds)));
+                    s -> new CircuitBreaker(s,
+                            (int) dynamicConfig.getNumber("resilience.circuit-window", circuitWindow, null),
+                            dynamicConfig.getNumber("resilience.circuit-failure-rate", circuitFailureRate, null),
+                            Duration.ofSeconds((long) dynamicConfig.getNumber("resilience.circuit-open-seconds", circuitOpenSeconds, null))));
             if (!breaker.tryAcquire()) {
                 log.warn("[resilience] {} circuit OPEN, skip primary call", scene);
                 return new ResilienceResult<>(fallback.get(), true, 0);
