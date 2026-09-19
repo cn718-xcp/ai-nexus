@@ -12,6 +12,12 @@ spring:
       host: localhost
       port: 6379
 
+# dev 环境健康明细全开，便于本地排障（prod 保持 when-authorized）
+management:
+  endpoint:
+    health:
+      show-details: always
+
 logging:
   level:
     com.ainexus: DEBUG

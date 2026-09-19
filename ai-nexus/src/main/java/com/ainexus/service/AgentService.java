@@ -49,6 +49,8 @@ public class AgentService {
 
     public String invoke(String sessionId, String prompt, Long userId) {
         long start = System.currentTimeMillis();
+        // 会话 ID 缺省时服务端生成（历史与埋点均绑定该会话；多轮记忆需客户端回传）
+        String sid = sessionId == null || sessionId.isBlank() ? java.util.UUID.randomUUID().toString() : sessionId;
         // 每次请求构建会话级 ChatClient：注册工具集（工厂模式）
         ChatClient client = ChatClient.builder(routeContext.route(ModelScene.AGENT))
                 .defaultToolCallbacks(MethodToolCallbackProvider.builder()
@@ -57,7 +59,7 @@ public class AgentService {
 
         // 短期记忆：历史滑窗 + 本轮指令
         List<Message> history = new ArrayList<>();
-        chatHistoryService.loadWindow(sessionId, userId)
+        chatHistoryService.loadWindow(sid, userId)
                 .forEach(h -> history.add("assistant".equals(h.getRole())
                         ? new AssistantMessage(h.getContent())
                         : new UserMessage(h.getContent())));
@@ -75,13 +77,13 @@ public class AgentService {
         String answer = result.result();
 
         // Agent 轮次同样写入历史，实现跨轮上下文延续
-        chatHistoryService.saveUser(sessionId, prompt, "agent", userId);
-        chatHistoryService.saveAssistant(sessionId, answer, "agent", userId);
+        chatHistoryService.saveUser(sid, prompt, "agent", userId);
+        chatHistoryService.saveAssistant(sid, answer, "agent", userId);
 
         eventPublisher.publish(AiCallEvent.builder()
                 .scene(ModelScene.AGENT.name())
                 .modelName("agent")
-                .sessionId(sessionId)
+                .sessionId(sid)
                 .userId(userId)
                 .success(!result.fallback())
                 .costMs(System.currentTimeMillis() - start)
