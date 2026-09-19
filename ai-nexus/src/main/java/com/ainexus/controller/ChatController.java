@@ -15,6 +15,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
  * 对话接口：普通对话（限流 + 幂等 + 用户隔离）与结构化输出。
  */
@@ -26,6 +28,7 @@ public class ChatController {
 
     private final ChatService chatService;
     private final StructuredOutputService structuredOutputService;
+    private final com.ainexus.ai.memory.ChatHistoryService chatHistoryService;
     private final CurrentUserResolver currentUserResolver;
 
     @Operation(summary = "多轮对话（限流 + 幂等，鉴权开启时按用户隔离）")
@@ -36,6 +39,12 @@ public class ChatController {
     public ApiResponse<ChatAnswerResponse> chat(@Valid @RequestBody ChatRequest req) {
         return ApiResponse.ok(chatService.chat(req.getSessionId(), req.getMessage(),
                 currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
+    }
+
+    @Operation(summary = "会话回放（全链路追溯：原始 Prompt/回答/模型/时间）")
+    @GetMapping("/{sessionId}/replay")
+    public ApiResponse<List<com.ainexus.domain.entity.ChatMessageRecord>> replay(@PathVariable String sessionId) {
+        return ApiResponse.ok(chatHistoryService.replay(sessionId));
     }
 
     @Operation(summary = "结构化输出：信息抽取（Spring AI 2.0 Structured Output）")

@@ -43,6 +43,10 @@ public class RagChatService {
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
     private final com.ainexus.ai.rag.CitationMarker citationMarker;
     private final com.ainexus.ai.rag.RagProperties ragProperties;
+    private final com.ainexus.ai.security.PromptInjectionDetector injectionDetector;
+    private final com.ainexus.ai.security.SensitiveWordFilter sensitiveWordFilter;
+    @org.springframework.beans.factory.annotation.Value("${ainexus.rag.groundedness-check:false}")
+    private boolean groundednessCheck;
     private final com.ainexus.ai.eval.RagEvalLoopService evalLoopService;
     @org.springframework.beans.factory.annotation.Value("${ainexus.eval.answer-enabled:false}")
     private boolean answerEvalEnabled;
@@ -53,6 +57,13 @@ public class RagChatService {
             throw new BizException(ErrorCode.KB_NOT_FOUND);
         }
         tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
+        // 内容安全：注入检测 + 输入敏感词（security.enabled=false 直通）
+        if (injectionDetector.detect(question).injected()) {
+            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含不允许的内容");
+        }
+        if (sensitiveWordFilter.containsSensitive(question)) {
+            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含敏感词");
+        }
         // 会话 ID 在入口统一确定，保证流水线历史加载与响应返回一致
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         // 场景归一：未指定走 RAG 专用路由（也是熔断器维度）
@@ -104,14 +115,21 @@ public class RagChatService {
         chatHistoryService.saveAssistant(sid, result.result(), chatModel.getClass().getSimpleName(), userId, tenantId);
 
         List<ChunkReference> references = toReferences(context.getDocuments());
+        // 输出安全：敏感词掩码
+        String answer = sensitiveWordFilter.mask(result.result());
         // 引用高亮：答案中与引用片段重叠的句子追加来源序号（rag.citation-markers 开关）
-        String answer = ragProperties.isCitationMarkers()
-                ? citationMarker.mark(result.result(), references) : result.result();
+        if (ragProperties.isCitationMarkers()) {
+            answer = citationMarker.mark(answer, references);
+        }
+        // 事实性校验：标记答案中未被任何引用片段支持的句子（幻觉可视化，开关默认关）
+        List<String> ungrounded = groundednessCheck
+                ? citationMarker.ungroundedSentences(answer, references) : List.of();
         return RagAnswerResponse.builder()
                 .sessionId(sid)
                 .answer(answer)
                 .referencedChunks(context.getChunks())
                 .references(references)
+                .ungroundedSentences(ungrounded)
                 .fallback(result.fallback())
                 .build();
     }

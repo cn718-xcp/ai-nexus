@@ -44,6 +44,12 @@ public class ChatHistoryService {
         return recent;
     }
 
+    /** 全量会话回放：原始 Prompt/回答/模型/时间（审计追溯用） */
+    @Transactional(readOnly = true)
+    public List<ChatMessageRecord> replay(String sessionId) {
+        return chatMessageRepository.findBySession(sessionId);
+    }
+
     @Transactional
     public void saveUser(String sessionId, String content, String modelName, Long userId, Long tenantId) {
         save(sessionId, "user", content, modelName, userId, tenantId);

@@ -172,7 +172,36 @@ curl http://localhost:${APP_PORT:-8081}/health
 - 业务审计：audit_log 表记录 KB 增删/文档上传/登录注册（操作人/IP/结果）
 - 详见 [docs/operations.md](docs/operations.md)
 
-## 七、进阶能力（SaaS 治理与运维）
+## 七、AI 工程化专项能力
+
+### RAG 工程化（阶段1）
+- **分块策略可配**（`ainexus.rag.chunk-strategy`）：fixed 固定长度 / parent_child 父子分块
+  （子块召回+父块回答，召回扩展自动回退）/ semantic 语义分块（句级余弦断句）/ auto 超长自动升级
+- **溯源元数据**：每片段携带字符起止偏移（char_start/end）与所属章节（section），
+  引用精准定位到原文位置；混合检索新增位置权重（`position-weight`）
+- **检索质量评估**：`POST /api/v1/rag/eval` 批量测试集输出 Recall@K/命中率/相似度分布
+- **引用高亮**：`rag.citation-markers` 开启后答案按来源标注【1】【2】
+
+### Agent 工程化（阶段2）
+- 工具可靠性装饰器：白名单过滤/参数容错/指数退避重试/超时中断返回兜底
+- 两阶段协作 Agent `POST /api/v1/agent/plan-execute`：规划 Agent 拆解任务 → 执行 Agent
+  分步调用工具 → 整合回答；最大步数限制 + 循环检测 + 思维链（`return-thinking`）+ 降级纯问答
+
+### 模型服务工程化（阶段3）
+- 统一模型键 `provider:model`（ollama/openai，OpenAI 协议轻量适配器兼容 vLLM 等）
+- 自动降级（连接类失败切备用模型）、灰度发布（灰度键+流量比例）
+- 上下文压缩（字符预算裁剪早期对话）与请求去重缓存（默认关）
+
+### 效果评估闭环（阶段4）
+- LLM 三维评审（一致性/相关性/完整度），低分自动入 `rag_bad_case` Bad Case 库
+- 人工标注反馈接口；Prometheus `ainexus_eval_pass/total` 通过率指标
+
+### 内容安全与合规（阶段5）
+- 提示词注入检测（内置中英文规则库+自定义正则）、敏感词输入拦截/输出掩码
+- 事实性校验（`rag.groundedness-check`）：标记答案中未被引用支撑的句子（幻觉可视化）
+- 会话回放 `GET /api/v1/chat/{sessionId}/replay`（原始 Prompt/回答/模型/时间全追溯）
+
+## 八、进阶能力（SaaS 治理与运维）
 
 ### 多租户（`ainexus.tenant.enabled`，dev 默认关闭）
 - 租户 CRUD：`/api/v1/tenants`（创建含配额：知识库数/并发数/日调用量；启停；专属模型路由）
@@ -192,7 +221,7 @@ curl http://localhost:${APP_PORT:-8081}/health
 - JDK 原生压测工具 `perf.LoadRunner`（chat/rag/stream/agent/限流场景，TP50-99/QPS）
 - 基线数据与容量评估见 [docs/performance.md](docs/performance.md)
 
-## 八、单元测试
+## 九、单元测试
 
 ```bash
 mvn test
@@ -210,7 +239,7 @@ mvn test
 | `StatsServiceTest` | 聚合转换、null 防护（不抛 NPE） |
 | `SpelKeyResolverTest` | 参数表达式、嵌套属性、null 归一化 |
 
-## 九、常见问题排查（FAQ）
+## 十、常见问题排查（FAQ）
 
 | 现象 | 原因与处理 |
 |---|---|
@@ -221,7 +250,7 @@ mvn test
 | 启动报 8080 端口占用 | 结束残留进程或改 `server.port` |
 | Redis 连接失败 | 限流/幂等依赖 Redis，检查 `spring.data.redis.*` 配置 |
 
-## 十、目录结构
+## 十一、目录结构
 
 ```
 ai-nexus

@@ -21,6 +21,11 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageRecord, 
                                              @Param("userId") Long userId,
                                              @Param("limit") int limit);
 
+    /** 全量会话消息（时间正序）：全链路回放（原始 Prompt/回答/模型） */
+    @Query(value = "SELECT * FROM chat_message WHERE session_id = :sessionId ORDER BY created_at ASC",
+            nativeQuery = true)
+    List<ChatMessageRecord> findBySession(@Param("sessionId") String sessionId);
+
     /** 租户+用户二级隔离版：多租户开启时防止跨租户会话读取 */
     @Query(value = "SELECT * FROM chat_message WHERE session_id = :sessionId AND user_id = :userId AND tenant_id = :tenantId " +
             "ORDER BY created_at DESC LIMIT :limit", nativeQuery = true)

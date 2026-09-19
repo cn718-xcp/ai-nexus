@@ -63,7 +63,10 @@ public enum ErrorCode {
     CONFIG_INVALID("G0002", "配置值不合法"),
 
     /** 模型节点不可用 */
-    MODEL_NODE_UNAVAILABLE("H0001", "模型节点暂不可用，请稍后再试");
+    MODEL_NODE_UNAVAILABLE("H0001", "模型节点暂不可用，请稍后再试"),
+
+    /** 内容安全拦截：提示词注入/敏感词 */
+    SECURITY_BLOCKED("S0001", "输入包含不允许的内容");
 
     private final String code;
     private final String message;

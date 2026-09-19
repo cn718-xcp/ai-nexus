@@ -1,5 +1,9 @@
 package com.ainexus.service;
 
+import com.ainexus.ai.security.PromptInjectionDetector;
+import com.ainexus.ai.security.SensitiveWordFilter;
+import com.ainexus.common.api.ErrorCode;
+import com.ainexus.common.exception.BizException;
 import com.ainexus.ai.memory.ChatHistoryService;
 import com.ainexus.ai.resilience.ModelCallResilienceTemplate;
 import com.ainexus.ai.route.ModelRouteContext;
@@ -43,6 +47,8 @@ public class ChatService {
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
     private final com.ainexus.ai.model.ModelInvoker modelInvoker;
     private final com.ainexus.ai.model.PromptCacheService promptCache;
+    private final com.ainexus.ai.security.PromptInjectionDetector injectionDetector;
+    private final com.ainexus.ai.security.SensitiveWordFilter sensitiveWordFilter;
 
     @org.springframework.beans.factory.annotation.Value("${ainexus.models.primary:ollama:qwen2.5:7b}")
     private String primaryModelKey;
@@ -70,6 +76,14 @@ public class ChatService {
     public ChatAnswerResponse chat(String sessionId, String message, Long userId, Long tenantId) {
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         metrics.onChatRequest();
+        // 内容安全：注入检测 + 输入敏感词（security.enabled=false 直通）
+        var injection = injectionDetector.detect(message);
+        if (injection.injected()) {
+            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含不允许的内容");
+        }
+        if (sensitiveWordFilter.containsSensitive(message)) {
+            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含敏感词");
+        }
         // 多租户开启时校验租户状态与每日调用配额（关闭态直通）
         tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
         ChatModel chatModel = routeContext.route(ModelScene.CHAT, tenantId);
@@ -126,7 +140,8 @@ public class ChatService {
                 .errorMessage(result.fallback() ? "model unavailable, fallback applied" : null)
                 .build());
 
-        String answer = result.result();
+        // 输出安全：敏感词掩码
+        String answer = sensitiveWordFilter.mask(result.result());
         chatHistoryService.saveAssistant(sid, answer, modelName, userId, tenantId);
         return new ChatAnswerResponse(sid, answer);
     }
