@@ -1,6 +1,7 @@
 package com.ainexus.service;
 
 import com.ainexus.common.api.ErrorCode;
+import com.ainexus.common.audit.Audited;
 import com.ainexus.common.auth.JwtService;
 import com.ainexus.common.exception.BizException;
 import com.ainexus.domain.entity.SysUser;
@@ -31,6 +32,7 @@ public class AuthService {
     @Value("${ainexus.jwt.access-token-minutes:30}")
     private int accessTokenMinutes;
 
+    @Audited(action = "REGISTER", target = "#request.username")
     @Transactional
     public Long register(RegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
@@ -44,6 +46,7 @@ public class AuthService {
         return user.getId();
     }
 
+    @Audited(action = "LOGIN", target = "#request.username")
     @Transactional(readOnly = true)
     public TokenResponse login(LoginRequest request) {
         SysUser user = userRepository.findByUsername(request.getUsername())

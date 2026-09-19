@@ -97,6 +97,10 @@ management:
     web:
       exposure:
         include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      # /actuator/health 聚合各组件状态：DB/Redis/Milvus/Ollama
+      show-details: when-authorized
   observations:
     annotations:
       enabled: true                # 开启 @Observed/@Observed 注解观测

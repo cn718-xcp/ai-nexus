@@ -141,7 +141,38 @@ curl http://localhost:8080/api/v1/stats/overview
 
 > dev 环境密码可在 `application-dev.yml` 中直接修改，或用 `MYSQL_PASSWORD` 环境变量覆盖，避免提交个人密码到仓库。
 
-## 六、单元测试
+## 六、部署与运维
+
+### 容器化一键部署（推荐）
+```bash
+cp deploy/.env.example .env
+docker compose up -d --build        # 应用+MySQL+Redis+Milvus 全链路
+curl http://localhost:${APP_PORT:-8081}/health
+```
+详见 [deploy/README.md](deploy/README.md)。
+
+### 认证与权限
+- `ainexus.auth.enabled=true` 开启 JWT 鉴权（dev 默认关闭保持原行为）
+- `POST /api/v1/auth/register` 注册 / `login` 登录（返回双令牌）/ `refresh` 刷新
+- 鉴权开启后：知识库/对话历史/调用统计按用户隔离，越权返回 404
+- `@RateLimit`/`@Idempotent` 自动升级为用户维度（登录态），匿名回退 IP/摘要
+
+### 高可用开关（application.yml）
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| ainexus.resilience.circuit-enabled | false | 模型调用熔断（滚动窗口失败率→熔断→半开试探恢复） |
+| ainexus.concurrency.model-max | 0 | 模型并发上限（Redisson 信号量排队，超时降级） |
+| ainexus.rag.cache-enabled | false | 检索结果缓存（TTL+版本号主动失效） |
+| ainexus.rag.mode / rerank-enabled | vector / false | 混合检索 RRF 融合 / Embedding 精排 |
+
+### 监控与运维
+- 全链路 traceId：日志带 traceId 字段，响应头 X-Trace-Id 回传
+- 业务指标：/actuator/prometheus（知识库总量/日活对话/RAG 命中率/工具调用成功率）
+- 组件健康：/actuator/health 聚合 MySQL/Redis/Milvus/Ollama 状态
+- 业务审计：audit_log 表记录 KB 增删/文档上传/登录注册（操作人/IP/结果）
+- 详见 [docs/operations.md](docs/operations.md)
+
+## 七、单元测试
 
 ```bash
 mvn test
@@ -159,7 +190,7 @@ mvn test
 | `StatsServiceTest` | 聚合转换、null 防护（不抛 NPE） |
 | `SpelKeyResolverTest` | 参数表达式、嵌套属性、null 归一化 |
 
-## 七、常见问题排查（FAQ）
+## 八、常见问题排查（FAQ）
 
 | 现象 | 原因与处理 |
 |---|---|
@@ -170,7 +201,7 @@ mvn test
 | 启动报 8080 端口占用 | 结束残留进程或改 `server.port` |
 | Redis 连接失败 | 限流/幂等依赖 Redis，检查 `spring.data.redis.*` 配置 |
 
-## 八、目录结构
+## 九、目录结构
 
 ```
 ai-nexus

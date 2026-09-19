@@ -39,6 +39,7 @@ public class RagChatService {
     private final AiCallEventPublisher eventPublisher;
     private final KnowledgeBaseService knowledgeBaseService;
     private final ChatHistoryService chatHistoryService;
+    private final com.ainexus.common.metrics.BusinessMetrics metrics;
 
     public RagAnswerResponse ask(String sessionId, String question, String kbName, int topK, String scene, Long userId) {
         if (kbName != null && !kbName.isBlank()
@@ -68,6 +69,7 @@ public class RagChatService {
                         ? "抱歉，模型暂时不可用。"
                         : "抱歉，模型暂时不可用，以下是与问题相关的知识库片段：\n" + String.join("\n---\n", context.getChunks()));
 
+        metrics.onRagRequest(!context.getChunks().isEmpty());
         eventPublisher.publish(AiCallEvent.builder()
                 .scene(sceneName)
                 .modelName(chatModel.getClass().getSimpleName())

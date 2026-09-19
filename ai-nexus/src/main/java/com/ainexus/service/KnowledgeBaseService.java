@@ -2,6 +2,7 @@ package com.ainexus.service;
 
 import com.ainexus.ai.chunk.TextChunker;
 import com.ainexus.ai.rag.RetrievalCacheService;
+import com.ainexus.common.audit.Audited;
 import com.ainexus.common.api.ErrorCode;
 import com.ainexus.common.exception.BizException;
 import cn.hutool.crypto.digest.DigestUtil;
@@ -37,8 +38,10 @@ public class KnowledgeBaseService {
     private final VectorStore vectorStore;
     private final RetrievalCacheService retrievalCache;
     private final org.redisson.api.RedissonClient redissonClient;
+    private final com.ainexus.common.metrics.BusinessMetrics metrics;
     private final TextChunker chunker = new TextChunker(800, 100);
 
+    @Audited(action = "KB_CREATE", target = "#name")
     @Transactional
     public KnowledgeBase create(String name, String description, Long userId) {
         if (kbRepository.existsByName(name)) {
@@ -54,7 +57,9 @@ public class KnowledgeBaseService {
                 .status(1)
                 .userId(userId)
                 .build();
-        return kbRepository.save(kb);
+        KnowledgeBase saved = kbRepository.save(kb);
+        metrics.onKbChanged(kbRepository.count());
+        return saved;
     }
 
     /**
@@ -84,6 +89,7 @@ public class KnowledgeBaseService {
      * 上传文档：扩展名校验 -> 解析 -> 切分 -> 带元数据向量化入库（knowledge_base_name / doc_id 元数据用于检索过滤与删除）。
      * Redisson 分布式锁按 kbId 串行化，防止并发上传导致向量与元数据不一致。
      */
+    @Audited(action = "DOC_UPLOAD", target = "#file?.originalFilename")
     @Transactional
     public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file, Long userId) {
         KnowledgeBase kb = requireOwnedKb(kbId, userId);
@@ -160,6 +166,7 @@ public class KnowledgeBaseService {
 
     /** 删除知识库：级联删除其全部向量与文档记录。 */
     @Transactional
+    @Audited(action = "KB_DELETE", target = "#kbId")
     public void delete(Long kbId, Long userId) {
         KnowledgeBase kb = requireOwnedKb(kbId, userId);
         org.redisson.api.RLock lock = redissonClient.getLock("ainexus:lock:kb:" + kbId);
@@ -183,7 +190,9 @@ public class KnowledgeBaseService {
             }
             docRepository.deleteAll(docs);
             kbRepository.delete(kb);
+            metrics.onKbChanged(kbRepository.count());
             log.info("[kb] knowledge base deleted, name={}, docs={}", kb.getName(), docs.size());
+            retrievalCache.bumpVersion(kb.getName());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");

@@ -39,6 +39,7 @@ public class ChatService {
     private final ModelCallResilienceTemplate resilience;
     private final com.ainexus.ai.resilience.ModelCallGate gate;
     private final AiCallEventPublisher eventPublisher;
+    private final com.ainexus.common.metrics.BusinessMetrics metrics;
 
     /**
      * 多轮对话：返回服务端最终会话 ID（客户端未传时自动生成，需回传给前端以延续会话）。
@@ -47,6 +48,7 @@ public class ChatService {
      */
     public ChatAnswerResponse chat(String sessionId, String message, Long userId) {
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
+        metrics.onChatRequest();
         ChatModel chatModel = routeContext.route(ModelScene.CHAT);
 
         // 组装消息：系统提示 + 历史滑窗 + 本轮输入

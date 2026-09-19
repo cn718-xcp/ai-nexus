@@ -77,3 +77,17 @@ CREATE TABLE IF NOT EXISTS sys_user (
 -- ALTER TABLE knowledge_base ADD COLUMN user_id BIGINT NULL COMMENT '所属用户';
 -- ALTER TABLE chat_message    ADD COLUMN user_id BIGINT NULL COMMENT '所属用户';
 -- ALTER TABLE ai_call_log     ADD COLUMN user_id BIGINT NULL COMMENT '所属用户';
+
+-- 业务审计日志（阶段5）
+CREATE TABLE IF NOT EXISTS audit_log (
+    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    operator   VARCHAR(64)  NOT NULL COMMENT '操作人',
+    user_id    BIGINT       NULL,
+    action     VARCHAR(32)  NOT NULL COMMENT '操作类型',
+    target     VARCHAR(256) NULL COMMENT '操作对象',
+    detail     VARCHAR(1024) NULL,
+    client_ip  VARCHAR(64)  NULL,
+    success    INT          NOT NULL,
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_action_time (action, created_at)
+) ENGINE = InnoDB COMMENT '业务审计日志';

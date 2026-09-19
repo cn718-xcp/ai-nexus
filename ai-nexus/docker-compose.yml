@@ -85,15 +85,18 @@ services:
 
   # ---------------- Milvus 依赖：etcd（元数据） + minio（对象存储） ----------------
   etcd:
-    image: quay.io/coreos/etcd:v3.5.14
+    image: bitnami/etcd:3.5.14
     container_name: ai-nexus-etcd
     environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
       ETCD_AUTO_COMPACTION_MODE: revision
       ETCD_AUTO_COMPACTION_RETENTION: "1000"
       ETCD_QUOTA_BACKEND_BYTES: "4294967296"
-    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls=http://0.0.0.0:2379 --data-dir /etcd
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+    command: /opt/bitnami/scripts/etcd/run.sh --data-dir /bitnami/etcd/data
     volumes:
-      - etcd-data:/etcd
+      - etcd-data:/bitnami/etcd
     restart: unless-stopped
 
   minio:
