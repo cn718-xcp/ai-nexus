@@ -123,7 +123,10 @@ public class KnowledgeBaseService {
                 chunkIds.add(UUID.nameUUIDFromBytes((doc.getDocUuid() + ":" + i)
                         .getBytes(StandardCharsets.UTF_8)).toString());
             }
-            vectorStore.delete(chunkIds);
+            // chunkCount 为 0 的脏数据会导致空列表删除调用异常，跳过
+            if (!chunkIds.isEmpty()) {
+                vectorStore.delete(chunkIds);
+            }
         }
         docRepository.deleteAll(docs);
         kbRepository.delete(kb);
