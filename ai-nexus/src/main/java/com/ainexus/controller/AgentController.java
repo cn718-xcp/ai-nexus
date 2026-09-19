@@ -4,6 +4,8 @@ import com.ainexus.common.api.ApiResponse;
 import com.ainexus.common.auth.CurrentUserResolver;
 import com.ainexus.common.ratelimit.RateLimit;
 import com.ainexus.dto.request.AgentChatRequest;
+import com.ainexus.ai.agent.AgentProperties;
+import com.ainexus.ai.agent.TwoPhaseAgentService;
 import com.ainexus.service.AgentService;
 import com.ainexus.service.MultimodalService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -12,6 +14,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Map;
 
 /**
  * Agent 工具调用 + 多模态接口。
@@ -23,6 +27,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class AgentController {
 
     private final AgentService agentService;
+    private final TwoPhaseAgentService twoPhaseAgentService;
+    private final AgentProperties agentProperties;
     private final MultimodalService multimodalService;
     private final CurrentUserResolver currentUserResolver;
 
@@ -32,6 +38,22 @@ public class AgentController {
     public ApiResponse<String> invoke(@Valid @RequestBody AgentChatRequest req) {
         return ApiResponse.ok(agentService.invoke(req.getSessionId(), req.getPrompt(),
                 currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
+    }
+
+    @Operation(summary = "两阶段协作 Agent（规划+执行，max-steps/循环检测/思维链）")
+    @PostMapping("/plan-execute")
+    @RateLimit(permits = 10, windowSeconds = 10)
+    public ApiResponse<Map<String, Object>> planExecute(@Valid @RequestBody AgentChatRequest req) {
+        var result = twoPhaseAgentService.execute(req.getSessionId(), req.getPrompt(),
+                currentUserResolver.currentUserId(), currentUserResolver.currentTenantId());
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("answer", result.answer());
+        body.put("executedSteps", result.executedSteps());
+        body.put("degraded", result.degraded());
+        if (agentProperties.isReturnThinking() && result.thinkingChain() != null) {
+            body.put("thinkingChain", result.thinkingChain());
+        }
+        return ApiResponse.ok(body);
     }
 
     @Operation(summary = "图片理解（多模态，路由至多模态模型）")

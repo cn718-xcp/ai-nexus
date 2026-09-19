@@ -77,6 +77,13 @@ ainexus:
   tenant:                          # 多租户开关：dev 默认关闭（单租户模式，行为与关闭前完全一致）
     enabled: false
     user-qps: 5                    # 用户级 QPS 限流阈值（0 表示不启用用户维度限流）
+  agent:                           # Agent 可控性：工具容错/步数限制/思维链/两阶段协作
+    tool-max-retries: 2            # 工具调用最大重试（指数退避）
+    tool-timeout-ms: 8000          # 工具单次执行超时
+    tool-whitelist: []             # 工具白名单（空=全部放行）
+    max-steps: 8                   # 两阶段执行最大步数（循环检测自动终止）
+    return-thinking: false         # 是否返回思维链（Thought/Action/Observation）
+    fallback-to-plain-qa: true     # 工具不可用自动降级纯问答
   dynamic:                         # 动态配置中心：DB 配置优先级高于本地 yml（enabled=false 仅读 yml）
     enabled: false
   model-pool:                      # 模型节点池：多 Ollama 实例集群化（enabled=false 单节点直通）
