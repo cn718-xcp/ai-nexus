@@ -38,6 +38,10 @@ public class KnowledgeBase {
     @Column(nullable = false)
     private Integer status;
 
+    /** 所属用户（auth.enabled=true 时隔离维度；关闭态为 NULL 且不过滤） */
+    @Column(name = "user_id")
+    private Long userId;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

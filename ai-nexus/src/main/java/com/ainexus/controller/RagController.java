@@ -1,6 +1,7 @@
 package com.ainexus.controller;
 
 import com.ainexus.common.api.ApiResponse;
+import com.ainexus.common.auth.CurrentUserResolver;
 import com.ainexus.common.ratelimit.RateLimit;
 import com.ainexus.dto.request.RagChatRequest;
 import com.ainexus.dto.response.RagAnswerResponse;
@@ -26,13 +27,14 @@ import reactor.core.publisher.Flux;
 public class RagController {
 
     private final RagChatService ragChatService;
+    private final CurrentUserResolver currentUserResolver;
 
     @Operation(summary = "RAG 问答（同步，含引用片段）")
     @PostMapping("/ask")
     @RateLimit(permits = 10, windowSeconds = 10)
     public ApiResponse<RagAnswerResponse> ask(@Valid @RequestBody RagChatRequest req) {
         return ApiResponse.ok(ragChatService.ask(req.getSessionId(), req.getQuestion(),
-                req.getKnowledgeBaseName(), req.getTopK(), req.getScene()));
+                req.getKnowledgeBaseName(), req.getTopK(), req.getScene(), currentUserResolver.currentUserId()));
     }
 
     @Operation(summary = "RAG 问答（SSE 流式，检索完成后首 token 直出）")
@@ -40,6 +42,6 @@ public class RagController {
     @RateLimit(permits = 5, windowSeconds = 10)
     public Flux<String> stream(@Valid @RequestBody RagChatRequest req) {
         return ragChatService.streamAsk(req.getSessionId(), req.getQuestion(),
-                req.getKnowledgeBaseName(), req.getTopK(), req.getScene());
+                req.getKnowledgeBaseName(), req.getTopK(), req.getScene(), currentUserResolver.currentUserId());
     }
 }

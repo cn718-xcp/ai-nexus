@@ -30,6 +30,7 @@ public class IdempotentAspect {
 
     private final RedissonClient redissonClient;
     private final SpelKeyResolver spelKeyResolver;
+    private final com.ainexus.common.auth.CurrentUserResolver currentUserResolver;
 
     @Around("@annotation(idempotent)")
     public Object around(ProceedingJoinPoint pjp, Idempotent idempotent) throws Throwable {
@@ -51,7 +52,9 @@ public class IdempotentAspect {
         if (!idempotent.key().isEmpty()) {
             suffix = spelKeyResolver.resolve(idempotent.key(), method, pjp.getArgs());
         } else {
-            suffix = DigestUtil.md5Hex(Arrays.toString(pjp.getArgs()));
+            // 维度优先级：登录用户 > 请求参数摘要（鉴权开启后幂等按用户维度生效）
+            Long userId = currentUserResolver.currentUserId();
+            suffix = userId != null ? "u:" + userId : DigestUtil.md5Hex(Arrays.toString(pjp.getArgs()));
         }
         return method.getDeclaringClass().getSimpleName() + ":" + method.getName() + ":" + suffix;
     }

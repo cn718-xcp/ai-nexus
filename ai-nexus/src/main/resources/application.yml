@@ -68,6 +68,12 @@ ainexus:
       RAG: qwen2.5:7b
       AGENT: qwen2.5:7b
       MULTIMODAL: llava:7b         # 多模态模型，需: ollama pull llava:7b
+  auth:                            # 认证开关：dev 默认关闭保持无鉴权调试体验；prod 建议开启
+    enabled: false
+  jwt:                             # JWT 配置（auth.enabled=true 时生效）
+    secret: ${JWT_SECRET:change-me-in-production-ai-nexus-jwt-secret-key-2026}
+    access-token-minutes: 30       # 访问令牌有效期
+    refresh-token-days: 7          # 刷新令牌有效期
 
 # ---------------------------------------------------------------------
 # 可观测（Actuator + Micrometer + Spring AI Observation）

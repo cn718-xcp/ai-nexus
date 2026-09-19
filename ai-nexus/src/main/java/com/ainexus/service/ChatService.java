@@ -41,17 +41,19 @@ public class ChatService {
 
     /**
      * 多轮对话：返回服务端最终会话 ID（客户端未传时自动生成，需回传给前端以延续会话）。
+     *
+     * @param userId 用户隔离维度（鉴权开启时由控制器解析传入；关闭态为 null）
      */
-    public ChatAnswerResponse chat(String sessionId, String message) {
+    public ChatAnswerResponse chat(String sessionId, String message, Long userId) {
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         ChatModel chatModel = routeContext.route(ModelScene.CHAT);
 
         // 组装消息：系统提示 + 历史滑窗 + 本轮输入
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(SYSTEM_PROMPT));
-        chatHistoryService.loadWindow(sid).forEach(h -> toMessage(h, messages));
+        chatHistoryService.loadWindow(sid, userId).forEach(h -> toMessage(h, messages));
         messages.add(new UserMessage(message));
-        chatHistoryService.saveUser(sid, message, null);
+        chatHistoryService.saveUser(sid, message, null, userId);
 
         // 单元素数组承载响应元数据（模型名 / token 用量），避免为 lambda 引入包装类
         ChatResponse[] holder = new ChatResponse[1];
@@ -70,6 +72,7 @@ public class ChatService {
                 .scene(ModelScene.CHAT.name())
                 .modelName(modelName)
                 .sessionId(sid)
+                .userId(userId)
                 .success(!result.fallback())
                 .costMs(result.costMs())
                 .promptTokens(usage == null ? null : Long.valueOf(usage.getPromptTokens()))
@@ -79,7 +82,7 @@ public class ChatService {
                 .build());
 
         String answer = result.result();
-        chatHistoryService.saveAssistant(sid, answer, modelName);
+        chatHistoryService.saveAssistant(sid, answer, modelName, userId);
         return new ChatAnswerResponse(sid, answer);
     }
 

@@ -37,7 +37,7 @@ public class KnowledgeBaseService {
     private final TextChunker chunker = new TextChunker(800, 100);
 
     @Transactional
-    public KnowledgeBase create(String name, String description) {
+    public KnowledgeBase create(String name, String description, Long userId) {
         if (kbRepository.existsByName(name)) {
             throw new BizException(ErrorCode.BIZ_ERROR, "知识库名称已存在: " + name);
         }
@@ -49,13 +49,29 @@ public class KnowledgeBaseService {
                 .description(description)
                 .collectionName("kb_" + DigestUtil.md5Hex(name).substring(0, 8) + "_" + normalized)
                 .status(1)
+                .userId(userId)
                 .build();
         return kbRepository.save(kb);
     }
 
+    /**
+     * 知识库列表：userId 为 null（鉴权关闭）返回全部；开启后仅返回该用户的库（数据隔离）。
+     */
     @Transactional(readOnly = true)
-    public List<KnowledgeBase> list() {
-        return kbRepository.findAll();
+    public List<KnowledgeBase> list(Long userId) {
+        return userId == null ? kbRepository.findAll() : kbRepository.findByUserId(userId);
+    }
+
+    /**
+     * 归属校验：鉴权开启时校验知识库属于当前用户，防止越权读写（统一返回 NOT_FOUND 防探测）。
+     */
+    private KnowledgeBase requireOwnedKb(Long kbId, Long userId) {
+        KnowledgeBase kb = kbRepository.findById(kbId)
+                .orElseThrow(() -> new BizException(ErrorCode.KB_NOT_FOUND));
+        if (userId != null && !userId.equals(kb.getUserId())) {
+            throw new BizException(ErrorCode.KB_NOT_FOUND);
+        }
+        return kb;
     }
 
     /** 支持的纯文本文档扩展名（二进制格式按 UTF-8 强读会产生乱码向量，必须在入口拦截） */
@@ -65,9 +81,8 @@ public class KnowledgeBaseService {
      * 上传文档：扩展名校验 -> 解析 -> 切分 -> 带元数据向量化入库（knowledge_base_name / doc_id 元数据用于检索过滤与删除）。
      */
     @Transactional
-    public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file) {
-        KnowledgeBase kb = kbRepository.findById(kbId)
-                .orElseThrow(() -> new BizException(ErrorCode.KB_NOT_FOUND));
+    public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file, Long userId) {
+        KnowledgeBase kb = requireOwnedKb(kbId, userId);
         validateExtension(file);
         String text;
         try {
@@ -114,9 +129,8 @@ public class KnowledgeBaseService {
 
     /** 删除知识库：级联删除其全部向量与文档记录。 */
     @Transactional
-    public void delete(Long kbId) {
-        KnowledgeBase kb = kbRepository.findById(kbId)
-                .orElseThrow(() -> new BizException(ErrorCode.KB_NOT_FOUND));
+    public void delete(Long kbId, Long userId) {
+        KnowledgeBase kb = requireOwnedKb(kbId, userId);
         List<KnowledgeDocument> docs = docRepository.findByKbIdOrderByCreatedAtDesc(kbId);
         for (KnowledgeDocument doc : docs) {
             List<String> chunkIds = new ArrayList<>(doc.getChunkCount());
@@ -135,7 +149,8 @@ public class KnowledgeBaseService {
     }
 
     @Transactional(readOnly = true)
-    public List<KnowledgeDocument> listDocuments(Long kbId) {
+    public List<KnowledgeDocument> listDocuments(Long kbId, Long userId) {
+        requireOwnedKb(kbId, userId);
         return docRepository.findByKbIdOrderByCreatedAtDesc(kbId);
     }
 }

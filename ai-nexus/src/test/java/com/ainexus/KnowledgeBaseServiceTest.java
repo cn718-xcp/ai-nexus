@@ -55,7 +55,7 @@ class KnowledgeBaseServiceTest {
         when(kbRepository.existsByName("产品手册")).thenReturn(false);
         when(kbRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        KnowledgeBase kb = service.create("产品手册", "测试");
+        KnowledgeBase kb = service.create("产品手册", "测试", null);
 
         // Milvus Collection 名仅允许字母/数字/下划线：不允许中文，且为 kb_+md5前8位+规范化名
         String collectionName = kb.getCollectionName();
@@ -68,7 +68,7 @@ class KnowledgeBaseServiceTest {
         when(kbRepository.findById(1L)).thenReturn(Optional.of(KnowledgeBase.builder().id(1L).name("kb1").build()));
         MockMultipartFile pdf = new MockMultipartFile("file", "doc.pdf", "application/pdf", "binary".getBytes());
 
-        BizException e = assertThrows(BizException.class, () -> service.uploadDocument(1L, pdf));
+        BizException e = assertThrows(BizException.class, () -> service.uploadDocument(1L, pdf, null));
         assertEquals(ErrorCode.DOC_PARSE_ERROR, e.getErrorCode());
     }
 
@@ -80,7 +80,7 @@ class KnowledgeBaseServiceTest {
         MockMultipartFile txt = new MockMultipartFile("file", "a.txt", "text/plain",
                 "Spring AI 是 AI 应用框架。".getBytes(StandardCharsets.UTF_8));
 
-        KnowledgeDocument doc = service.uploadDocument(1L, txt);
+        KnowledgeDocument doc = service.uploadDocument(1L, txt, null);
 
         ArgumentCaptor<List<Document>> captor = ArgumentCaptor.forClass(List.class);
         verify(vectorStore).add(captor.capture());
@@ -104,7 +104,7 @@ class KnowledgeBaseServiceTest {
         when(docRepository.findByKbIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(
                 KnowledgeDocument.builder().kbId(1L).docUuid(docUuid).chunkCount(2).build()));
 
-        service.delete(1L);
+        service.delete(1L, null);
 
         ArgumentCaptor<List<String>> captor = ArgumentCaptor.forClass(List.class);
         verify(vectorStore).delete(captor.capture());

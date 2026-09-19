@@ -1,6 +1,7 @@
 package com.ainexus.controller;
 
 import com.ainexus.common.api.ApiResponse;
+import com.ainexus.common.auth.CurrentUserResolver;
 import com.ainexus.common.idempotent.Idempotent;
 import com.ainexus.common.ratelimit.RateLimit;
 import com.ainexus.dto.request.ChatRequest;
@@ -15,7 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * 对话接口：普通对话（限流 + 幂等）与结构化输出。
+ * 对话接口：普通对话（限流 + 幂等 + 用户隔离）与结构化输出。
  */
 @Tag(name = "Chat", description = "智能对话")
 @RestController
@@ -25,14 +26,15 @@ public class ChatController {
 
     private final ChatService chatService;
     private final StructuredOutputService structuredOutputService;
+    private final CurrentUserResolver currentUserResolver;
 
-    @Operation(summary = "多轮对话（限流 + 幂等）")
+    @Operation(summary = "多轮对话（限流 + 幂等，鉴权开启时按用户隔离）")
     @PostMapping
     @RateLimit(permits = 20, windowSeconds = 10)
     // sessionId 为空时回退到消息内容做幂等维度，避免所有匿名请求共享 "null" Key 互相误杀
     @Idempotent(key = "#req.sessionId != null ? #req.sessionId : #req.message", ttlSeconds = 3)
     public ApiResponse<ChatAnswerResponse> chat(@Valid @RequestBody ChatRequest req) {
-        return ApiResponse.ok(chatService.chat(req.getSessionId(), req.getMessage()));
+        return ApiResponse.ok(chatService.chat(req.getSessionId(), req.getMessage(), currentUserResolver.currentUserId()));
     }
 
     @Operation(summary = "结构化输出：信息抽取（Spring AI 2.0 Structured Output）")

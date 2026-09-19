@@ -17,6 +17,8 @@ public class AiCallEvent {
     private String scene;
     private String modelName;
     private String sessionId;
+    /** 用户隔离维度（鉴权开启时有值） */
+    private Long userId;
     private boolean success;
     private long costMs;
     private Long promptTokens;

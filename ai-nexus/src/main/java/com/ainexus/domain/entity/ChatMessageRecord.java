@@ -36,6 +36,10 @@ public class ChatMessageRecord {
     @Column(length = 64)
     private String modelName;
 
+    /** 所属用户（鉴权开启时隔离维度；关闭态为 NULL） */
+    @Column(name = "user_id")
+    private Long userId;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

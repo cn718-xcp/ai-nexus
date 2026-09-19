@@ -13,4 +13,11 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageRecord, 
     @Query(value = "SELECT * FROM chat_message WHERE session_id = :sessionId ORDER BY created_at DESC LIMIT :limit",
             nativeQuery = true)
     List<ChatMessageRecord> findRecent(@Param("sessionId") String sessionId, @Param("limit") int limit);
+
+    /** 用户隔离版：鉴权开启时按用户过滤，防止跨用户会话读取 */
+    @Query(value = "SELECT * FROM chat_message WHERE session_id = :sessionId AND user_id = :userId " +
+            "ORDER BY created_at DESC LIMIT :limit", nativeQuery = true)
+    List<ChatMessageRecord> findRecentByUser(@Param("sessionId") String sessionId,
+                                             @Param("userId") Long userId,
+                                             @Param("limit") int limit);
 }

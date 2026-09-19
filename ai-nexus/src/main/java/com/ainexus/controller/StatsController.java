@@ -1,6 +1,7 @@
 package com.ainexus.controller;
 
 import com.ainexus.common.api.ApiResponse;
+import com.ainexus.common.auth.CurrentUserResolver;
 import com.ainexus.service.StatsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,10 +22,11 @@ import java.util.Map;
 public class StatsController {
 
     private final StatsService statsService;
+    private final CurrentUserResolver currentUserResolver;
 
-    @Operation(summary = "调用统计总览（按场景/日期 + 按模型）")
+    @Operation(summary = "调用统计总览（鉴权开启时按用户隔离）")
     @GetMapping("/overview")
     public ApiResponse<Map<String, Object>> overview() {
-        return ApiResponse.ok(statsService.overview());
+        return ApiResponse.ok(statsService.overview(currentUserResolver.currentUserId()));
     }
 }

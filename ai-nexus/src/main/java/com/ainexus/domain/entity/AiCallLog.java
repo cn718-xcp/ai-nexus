@@ -51,6 +51,10 @@ public class AiCallLog {
     @Column(nullable = false)
     private Integer fallback;
 
+    /** 所属用户（鉴权开启时隔离维度；关闭态为 NULL） */
+    @Column(name = "user_id")
+    private Long userId;
+
     /** 失败原因 */
     @Column(length = 512)
     private String errorMessage;

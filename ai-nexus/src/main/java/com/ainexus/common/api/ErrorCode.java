@@ -39,7 +39,12 @@ public enum ErrorCode {
     /** 触发限流 */
     RATE_LIMIT_EXCEEDED("D0001", "请求过于频繁，请稍后再试"),
     /** 重复请求（幂等命中） */
-    DUPLICATE_REQUEST("D0002", "请勿重复提交请求");
+    DUPLICATE_REQUEST("D0002", "请勿重复提交请求"),
+
+    /** 未认证：缺少或无效令牌 */
+    UNAUTHORIZED("E0001", "未认证，请先登录"),
+    /** 令牌过期 */
+    TOKEN_EXPIRED("E0002", "令牌已过期，请刷新");
 
     private final String code;
     private final String message;

@@ -33,6 +33,7 @@ public class RateLimitAspect {
 
     private final RedissonClient redissonClient;
     private final SpelKeyResolver spelKeyResolver;
+    private final com.ainexus.common.auth.CurrentUserResolver currentUserResolver;
 
     @Around("@annotation(rateLimit)")
     public Object around(ProceedingJoinPoint pjp, RateLimit rateLimit) throws Throwable {
@@ -54,7 +55,9 @@ public class RateLimitAspect {
         if (!rateLimit.key().isEmpty()) {
             suffix = spelKeyResolver.resolve(rateLimit.key(), method, pjp.getArgs());
         } else {
-            suffix = clientIp();
+            // 维度优先级：登录用户 > 客户端 IP（鉴权开启后限流按用户维度生效）
+            Long userId = currentUserResolver.currentUserId();
+            suffix = userId != null ? "u:" + userId : clientIp();
         }
         return method.getDeclaringClass().getSimpleName() + ":" + method.getName() + ":" + suffix;
     }

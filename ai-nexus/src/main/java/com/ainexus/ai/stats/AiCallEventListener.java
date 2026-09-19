@@ -27,6 +27,7 @@ public class AiCallEventListener {
                     .scene(event.getScene())
                     .modelName(event.getModelName())
                     .sessionId(event.getSessionId())
+                    .userId(event.getUserId())
                     .success(event.isSuccess() ? 1 : 0)
                     .costMs(event.getCostMs())
                     .promptTokens(event.getPromptTokens())

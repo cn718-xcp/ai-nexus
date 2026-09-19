@@ -26,6 +26,9 @@ public class RagContext {
     /** 检索 topK */
     private final int topK;
 
+    /** 用户隔离维度（鉴权开启时传递；关闭态为 null） */
+    private final Long userId;
+
     /** 重写后的查询（默认等于原始问题） */
     private String rewrittenQuery;
 

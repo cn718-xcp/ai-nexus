@@ -17,4 +17,13 @@ public interface AiCallLogRepository extends JpaRepository<AiCallLog, Long> {
     @Query("SELECT l.modelName, COUNT(l), SUM(l.promptTokens), SUM(l.completionTokens), SUM(CASE WHEN l.success = 0 THEN 1 ELSE 0 END) " +
             "FROM AiCallLog l GROUP BY l.modelName ORDER BY COUNT(l) DESC")
     List<Object[]> statByModel();
+
+    /** 用户隔离版统计（鉴权开启时使用） */
+    @Query("SELECT l.scene, l.callDate, COUNT(l), AVG(l.costMs) FROM AiCallLog l WHERE l.userId = :userId " +
+            "GROUP BY l.scene, l.callDate ORDER BY l.callDate DESC")
+    List<Object[]> statBySceneAndDateForUser(@Param("userId") Long userId);
+
+    @Query("SELECT l.modelName, COUNT(l), SUM(l.promptTokens), SUM(l.completionTokens), SUM(CASE WHEN l.success = 0 THEN 1 ELSE 0 END) " +
+            "FROM AiCallLog l WHERE l.userId = :userId GROUP BY l.modelName ORDER BY COUNT(l) DESC")
+    List<Object[]> statByModelForUser(@Param("userId") Long userId);
 }

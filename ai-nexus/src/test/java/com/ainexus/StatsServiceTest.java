@@ -32,7 +32,7 @@ class StatsServiceTest {
         when(aiCallLogRepository.statByModel()).thenReturn(List.<Object[]>of(
                 new Object[]{"qwen2.5:7b", 5L, null, null, 1L}));
 
-        Map<String, Object> overview = new StatsService(aiCallLogRepository).overview();
+        Map<String, Object> overview = new StatsService(aiCallLogRepository).overview(null);
 
         List<Map<String, Object>> sceneStats = (List<Map<String, Object>>) overview.get("bySceneAndDate");
         assertEquals(2, sceneStats.size());

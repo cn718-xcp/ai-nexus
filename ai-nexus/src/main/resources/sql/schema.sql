@@ -11,9 +11,11 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
     description     VARCHAR(512) NULL COMMENT '描述',
     collection_name VARCHAR(128) NOT NULL COMMENT 'Milvus Collection 名称',
     status          INT          NOT NULL DEFAULT 1 COMMENT '状态：1-启用 0-禁用',
+    user_id         BIGINT       NULL COMMENT '所属用户（鉴权开启时隔离维度）',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME     NULL ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_name (name)
+    UNIQUE KEY uk_name (name),
+    KEY idx_user_id (user_id)
 ) ENGINE = InnoDB COMMENT '知识库';
 
 -- 知识库文档
@@ -37,8 +39,10 @@ CREATE TABLE IF NOT EXISTS chat_message (
     role       VARCHAR(16) NOT NULL COMMENT 'user/assistant/system',
     content    TEXT        NOT NULL,
     model_name VARCHAR(64) NULL COMMENT '实际路由模型',
+    user_id    BIGINT      NULL COMMENT '所属用户（鉴权开启时隔离维度）',
     created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_session_created (session_id, created_at)
+    KEY idx_session_created (session_id, created_at),
+    KEY idx_session_user (session_id, user_id)
 ) ENGINE = InnoDB COMMENT '对话历史';
 
 -- AI 调用流水（统计）
@@ -52,8 +56,24 @@ CREATE TABLE IF NOT EXISTS ai_call_log (
     prompt_tokens     BIGINT       NULL,
     completion_tokens BIGINT       NULL,
     fallback          INT          NOT NULL DEFAULT 0,
+    user_id           BIGINT       NULL COMMENT '所属用户（鉴权开启时隔离维度）',
     error_message     VARCHAR(512) NULL,
     call_date         VARCHAR(10)  NOT NULL COMMENT '调用日期 yyyy-MM-dd',
     created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_scene_day (scene, call_date)
+    KEY idx_scene_day (scene, call_date),
+    KEY idx_user_id (user_id)
 ) ENGINE = InnoDB COMMENT 'AI 调用流水';
+
+-- 系统用户（auth.enabled=true 时启用）
+CREATE TABLE IF NOT EXISTS sys_user (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username      VARCHAR(64)  NOT NULL COMMENT '用户名，唯一',
+    password_hash VARCHAR(72)  NOT NULL COMMENT 'BCrypt 摘要',
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_username (username)
+) ENGINE = InnoDB COMMENT '系统用户';
+
+-- 存量库升级（MySQL 8.0 无 ADD COLUMN IF NOT EXISTS，手动执行一次即可，重复执行报 Duplicate column 可忽略）：
+-- ALTER TABLE knowledge_base ADD COLUMN user_id BIGINT NULL COMMENT '所属用户';
+-- ALTER TABLE chat_message    ADD COLUMN user_id BIGINT NULL COMMENT '所属用户';
+-- ALTER TABLE ai_call_log     ADD COLUMN user_id BIGINT NULL COMMENT '所属用户';
