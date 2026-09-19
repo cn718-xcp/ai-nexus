@@ -55,6 +55,10 @@ public class AiCallLog {
     @Column(name = "user_id")
     private Long userId;
 
+    /** 所属租户（多租户开启时隔离维度；关闭态为 NULL） */
+    @Column(name = "tenant_id")
+    private Long tenantId;
+
     /** 失败原因 */
     @Column(length = 512)
     private String errorMessage;

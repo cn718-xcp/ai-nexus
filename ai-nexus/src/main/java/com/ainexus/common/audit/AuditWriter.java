@@ -19,11 +19,12 @@ public class AuditWriter {
     }
 
     @Async("aiCallExecutor")
-    public void write(Long userId, String username, String action, String target, String ip, boolean success, String error) {
+    public void write(Long userId, Long tenantId, String username, String action, String target, String ip, boolean success, String error) {
         try {
             repository.save(AuditLog.builder()
                     .operator(username == null ? "anonymous" : username)
                     .userId(userId)
+                    .tenantId(tenantId)
                     .action(action)
                     .target(target)
                     .detail(error == null ? "success" : "error: " + error)

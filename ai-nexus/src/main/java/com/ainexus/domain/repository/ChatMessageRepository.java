@@ -20,4 +20,12 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageRecord, 
     List<ChatMessageRecord> findRecentByUser(@Param("sessionId") String sessionId,
                                              @Param("userId") Long userId,
                                              @Param("limit") int limit);
+
+    /** 租户+用户二级隔离版：多租户开启时防止跨租户会话读取 */
+    @Query(value = "SELECT * FROM chat_message WHERE session_id = :sessionId AND user_id = :userId AND tenant_id = :tenantId " +
+            "ORDER BY created_at DESC LIMIT :limit", nativeQuery = true)
+    List<ChatMessageRecord> findRecentByUserAndTenant(@Param("sessionId") String sessionId,
+                                                      @Param("userId") Long userId,
+                                                      @Param("tenantId") Long tenantId,
+                                                      @Param("limit") int limit);
 }

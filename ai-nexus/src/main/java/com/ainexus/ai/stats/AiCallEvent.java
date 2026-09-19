@@ -19,6 +19,8 @@ public class AiCallEvent {
     private String sessionId;
     /** 用户隔离维度（鉴权开启时有值） */
     private Long userId;
+    /** 租户隔离维度（多租户开启时有值） */
+    private Long tenantId;
     private boolean success;
     private long costMs;
     private Long promptTokens;

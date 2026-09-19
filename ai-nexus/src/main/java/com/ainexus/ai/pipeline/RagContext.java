@@ -30,6 +30,9 @@ public class RagContext {
     /** 用户隔离维度（鉴权开启时传递；关闭态为 null） */
     private final Long userId;
 
+    /** 租户隔离维度（多租户开启时传递；关闭态为 null） */
+    private final Long tenantId;
+
     /** 重写后的查询（默认等于原始问题） */
     private String rewrittenQuery;
 

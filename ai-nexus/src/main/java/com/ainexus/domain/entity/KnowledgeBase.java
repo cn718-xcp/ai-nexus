@@ -42,6 +42,10 @@ public class KnowledgeBase {
     @Column(name = "user_id")
     private Long userId;
 
+    /** 所属租户（tenant.enabled=true 时隔离维度；关闭态为 NULL 且不过滤） */
+    @Column(name = "tenant_id")
+    private Long tenantId;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

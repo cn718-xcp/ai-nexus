@@ -26,6 +26,8 @@ public class JwtService {
 
     /** 自定义 claim：用户 ID（数据隔离维度） */
     public static final String CLAIM_UID = "uid";
+    /** 自定义 claim：租户 ID（多租户数据隔离维度） */
+    public static final String CLAIM_TID = "tid";
     /** 自定义 claim：令牌类型（access/refresh），refresh 接口据此校验 */
     public static final String CLAIM_TYPE = "token_type";
 
@@ -64,6 +66,11 @@ public class JwtService {
      * @param ttl      有效期
      */
     public String issue(String username, Long uid, String type, java.time.Duration ttl) {
+        return issue(username, uid, type, ttl, null);
+    }
+
+    /** 带 tid claim 的完整签发入口（tid 仅写入 access 令牌，refresh 换发时由用户档案回填） */
+    public String issue(String username, Long uid, String type, java.time.Duration ttl, Long tidExtra) {
         Instant now = Instant.now();
         JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .subject(username)
@@ -72,6 +79,9 @@ public class JwtService {
                 .claim(CLAIM_TYPE, type);
         if (uid != null) {
             claims.claim(CLAIM_UID, uid);
+        }
+        if (tidExtra != null) {
+            claims.claim(CLAIM_TID, tidExtra);
         }
         // 显式指定 JWS 头：编码器按算法匹配 JWK，缺省头会导致选择签名密钥失败
         org.springframework.security.oauth2.jwt.JwsHeader jwsHeader =
@@ -84,6 +94,11 @@ public class JwtService {
 
     public String issueAccessToken(String username, Long uid) {
         return issue(username, uid, "access", java.time.Duration.ofMinutes(properties.getAccessTokenMinutes()));
+    }
+
+    /** 签发携带租户 ID 的访问令牌（多租户开启时使用） */
+    public String issueAccessToken(String username, Long uid, Long tid) {
+        return issue(username, uid, "access", java.time.Duration.ofMinutes(properties.getAccessTokenMinutes()), tid);
     }
 
     public String issueRefreshToken(String username, Long uid) {

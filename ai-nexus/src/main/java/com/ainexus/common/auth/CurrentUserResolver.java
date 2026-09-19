@@ -33,6 +33,16 @@ public class CurrentUserResolver {
         return jwt == null ? null : jwt.getSubject();
     }
 
+    /** 当前租户 ID：多租户开启且令牌携带 tid 时返回；关闭态/匿名返回 null */
+    public Long currentTenantId() {
+        Jwt jwt = currentJwt();
+        if (jwt == null) {
+            return null;
+        }
+        Object tid = jwt.getClaims().get(JwtService.CLAIM_TID);
+        return tid instanceof Number number ? number.longValue() : null;
+    }
+
     private Jwt currentJwt() {
         if (!authEnabled) {
             return null;

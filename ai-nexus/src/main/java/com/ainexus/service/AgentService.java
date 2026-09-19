@@ -46,8 +46,9 @@ public class AgentService {
     private final AiCallEventPublisher eventPublisher;
     private final com.ainexus.ai.resilience.ModelCallResilienceTemplate resilience;
     private final com.ainexus.ai.resilience.ModelCallGate gate;
+    private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
 
-    public String invoke(String sessionId, String prompt, Long userId) {
+    public String invoke(String sessionId, String prompt, Long userId, Long tenantId) {
         long start = System.currentTimeMillis();
         // 会话 ID 缺省时服务端生成（历史与埋点均绑定该会话；多轮记忆需客户端回传）
         String sid = sessionId == null || sessionId.isBlank() ? java.util.UUID.randomUUID().toString() : sessionId;
@@ -59,11 +60,12 @@ public class AgentService {
 
         // 短期记忆：历史滑窗 + 本轮指令
         List<Message> history = new ArrayList<>();
-        chatHistoryService.loadWindow(sid, userId)
+        chatHistoryService.loadWindow(sid, userId, tenantId)
                 .forEach(h -> history.add("assistant".equals(h.getRole())
                         ? new AssistantMessage(h.getContent())
                         : new UserMessage(h.getContent())));
 
+        tenantQuotaService.ensureModelCallAllowed(tenantId);
         var result = resilience.execute(
                 ModelScene.AGENT.name(),
                 () -> gate.call(() -> client.prompt()
@@ -77,14 +79,15 @@ public class AgentService {
         String answer = result.result();
 
         // Agent 轮次同样写入历史，实现跨轮上下文延续
-        chatHistoryService.saveUser(sid, prompt, "agent", userId);
-        chatHistoryService.saveAssistant(sid, answer, "agent", userId);
+        chatHistoryService.saveUser(sid, prompt, "agent", userId, tenantId);
+        chatHistoryService.saveAssistant(sid, answer, "agent", userId, tenantId);
 
         eventPublisher.publish(AiCallEvent.builder()
                 .scene(ModelScene.AGENT.name())
                 .modelName("agent")
                 .sessionId(sid)
                 .userId(userId)
+                .tenantId(tenantId)
                 .success(!result.fallback())
                 .costMs(System.currentTimeMillis() - start)
                 .fallback(result.fallback())

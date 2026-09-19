@@ -44,10 +44,11 @@ public class AuditAspect {
     /** 解析上下文后交由 AuditWriter 异步落库（跨 Bean 调用保证 @Async 生效） */
     private void write(JoinPoint pjp, Audited audited, boolean success, String error) {
         Long userId = currentUserResolver.currentUserId();
+        Long tenantId = currentUserResolver.currentTenantId();
         String username = currentUserResolver.currentUsername();
         String ip = clientIp();
         String target = resolveTarget(audited, pjp);
-        auditWriter.write(userId, username, audited.action(), target, ip, success, error);
+        auditWriter.write(userId, tenantId, username, audited.action(), target, ip, success, error);
     }
 
     private String resolveTarget(Audited audited, JoinPoint pjp) {

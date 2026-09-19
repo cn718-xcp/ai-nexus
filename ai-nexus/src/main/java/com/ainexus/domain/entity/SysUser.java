@@ -36,6 +36,10 @@ public class SysUser {
     @Column(nullable = false, length = 72)
     private String passwordHash;
 
+    /** 所属租户（多租户开启时生效；NULL 表示未分配租户） */
+    @Column(name = "tenant_id")
+    private Long tenantId;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

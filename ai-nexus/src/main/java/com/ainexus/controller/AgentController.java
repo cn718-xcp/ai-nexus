@@ -30,7 +30,8 @@ public class AgentController {
     @PostMapping("/invoke")
     @RateLimit(permits = 10, windowSeconds = 10)
     public ApiResponse<String> invoke(@Valid @RequestBody AgentChatRequest req) {
-        return ApiResponse.ok(agentService.invoke(req.getSessionId(), req.getPrompt(), currentUserResolver.currentUserId()));
+        return ApiResponse.ok(agentService.invoke(req.getSessionId(), req.getPrompt(),
+                currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "图片理解（多模态，路由至多模态模型）")

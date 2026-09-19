@@ -39,14 +39,17 @@ public class KnowledgeBaseService {
     private final RetrievalCacheService retrievalCache;
     private final org.redisson.api.RedissonClient redissonClient;
     private final com.ainexus.common.metrics.BusinessMetrics metrics;
+    private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
     private final TextChunker chunker = new TextChunker(800, 100);
 
     @Audited(action = "KB_CREATE", target = "#name")
     @Transactional
-    public KnowledgeBase create(String name, String description, Long userId) {
+    public KnowledgeBase create(String name, String description, Long userId, Long tenantId) {
         if (kbRepository.existsByName(name)) {
             throw new BizException(ErrorCode.BIZ_ERROR, "知识库名称已存在: " + name);
         }
+        // 多租户开启时校验租户状态与知识库数量配额（关闭态直通）
+        tenantQuotaService.ensureKbCreateAllowed(tenantId);
         // Milvus Collection 名仅允许字母/数字/下划线：中文等字符需剔除，
         // 追加名称 MD5 前 8 位保证不同名称（如 "a_b" 与 "a b"）规范化后仍唯一
         String normalized = name.replaceAll("[^a-zA-Z0-9]", "_").toLowerCase();
@@ -56,6 +59,7 @@ public class KnowledgeBaseService {
                 .collectionName("kb_" + DigestUtil.md5Hex(name).substring(0, 8) + "_" + normalized)
                 .status(1)
                 .userId(userId)
+                .tenantId(tenantId)
                 .build();
         KnowledgeBase saved = kbRepository.save(kb);
         metrics.onKbChanged(kbRepository.count());
@@ -65,18 +69,32 @@ public class KnowledgeBaseService {
     /**
      * 知识库列表：userId 为 null（鉴权关闭）返回全部；开启后仅返回该用户的库（数据隔离）。
      */
+    /**
+     * 知识库列表隔离语义（从强到弱取首个命中）：
+     * 租户+用户 二级隔离 > 用户隔离 > 全量（所有开关关闭态）。
+     */
     @Transactional(readOnly = true)
-    public List<KnowledgeBase> list(Long userId) {
-        return userId == null ? kbRepository.findAll() : kbRepository.findByUserId(userId);
+    public List<KnowledgeBase> list(Long userId, Long tenantId) {
+        if (tenantId != null && userId != null) {
+            return kbRepository.findByTenantIdAndUserId(tenantId, userId);
+        }
+        if (userId != null) {
+            return kbRepository.findByUserId(userId);
+        }
+        return kbRepository.findAll();
     }
 
     /**
      * 归属校验：鉴权开启时校验知识库属于当前用户，防止越权读写（统一返回 NOT_FOUND 防探测）。
      */
-    private KnowledgeBase requireOwnedKb(Long kbId, Long userId) {
+    private KnowledgeBase requireOwnedKb(Long kbId, Long userId, Long tenantId) {
         KnowledgeBase kb = kbRepository.findById(kbId)
                 .orElseThrow(() -> new BizException(ErrorCode.KB_NOT_FOUND));
+        // 二级隔离：租户维度不匹配或用户维度不匹配一律 404 防探测
         if (userId != null && !userId.equals(kb.getUserId())) {
+            throw new BizException(ErrorCode.KB_NOT_FOUND);
+        }
+        if (tenantId != null && kb.getTenantId() != null && !tenantId.equals(kb.getTenantId())) {
             throw new BizException(ErrorCode.KB_NOT_FOUND);
         }
         return kb;
@@ -91,8 +109,8 @@ public class KnowledgeBaseService {
      */
     @Audited(action = "DOC_UPLOAD", target = "#file?.originalFilename")
     @Transactional
-    public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file, Long userId) {
-        KnowledgeBase kb = requireOwnedKb(kbId, userId);
+    public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file, Long userId, Long tenantId) {
+        KnowledgeBase kb = requireOwnedKb(kbId, userId, tenantId);
         validateExtension(file);
         org.redisson.api.RLock lock = redissonClient.getLock("ainexus:lock:kb:" + kbId);
         boolean locked = false;
@@ -167,8 +185,8 @@ public class KnowledgeBaseService {
     /** 删除知识库：级联删除其全部向量与文档记录。 */
     @Transactional
     @Audited(action = "KB_DELETE", target = "#kbId")
-    public void delete(Long kbId, Long userId) {
-        KnowledgeBase kb = requireOwnedKb(kbId, userId);
+    public void delete(Long kbId, Long userId, Long tenantId) {
+        KnowledgeBase kb = requireOwnedKb(kbId, userId, tenantId);
         org.redisson.api.RLock lock = redissonClient.getLock("ainexus:lock:kb:" + kbId);
         boolean locked = false;
         try {
@@ -204,8 +222,8 @@ public class KnowledgeBaseService {
     }
 
     @Transactional(readOnly = true)
-    public List<KnowledgeDocument> listDocuments(Long kbId, Long userId) {
-        requireOwnedKb(kbId, userId);
+    public List<KnowledgeDocument> listDocuments(Long kbId, Long userId, Long tenantId) {
+        requireOwnedKb(kbId, userId, tenantId);
         return docRepository.findByKbIdOrderByCreatedAtDesc(kbId);
     }
 }

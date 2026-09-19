@@ -28,6 +28,7 @@ public class AiCallEventListener {
                     .modelName(event.getModelName())
                     .sessionId(event.getSessionId())
                     .userId(event.getUserId())
+                    .tenantId(event.getTenantId())
                     .success(event.isSuccess() ? 1 : 0)
                     .costMs(event.getCostMs())
                     .promptTokens(event.getPromptTokens())

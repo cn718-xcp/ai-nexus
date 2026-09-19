@@ -37,6 +37,10 @@ public class AuditLog {
     @Column(name = "user_id")
     private Long userId;
 
+    /** 所属租户（多租户开启时） */
+    @Column(name = "tenant_id")
+    private Long tenantId;
+
     /** 操作类型：KB_CREATE/KB_DELETE/DOC_UPLOAD/LOGIN/REGISTER */
     @Column(nullable = false, length = 32)
     private String action;

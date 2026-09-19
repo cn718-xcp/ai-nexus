@@ -40,12 +40,14 @@ public class RagChatService {
     private final KnowledgeBaseService knowledgeBaseService;
     private final ChatHistoryService chatHistoryService;
     private final com.ainexus.common.metrics.BusinessMetrics metrics;
+    private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
 
-    public RagAnswerResponse ask(String sessionId, String question, String kbName, int topK, String scene, Long userId) {
+    public RagAnswerResponse ask(String sessionId, String question, String kbName, int topK, String scene, Long userId, Long tenantId) {
         if (kbName != null && !kbName.isBlank()
-                && knowledgeBaseService.list(userId).stream().noneMatch(kb -> kb.getName().equals(kbName))) {
+                && knowledgeBaseService.list(userId, tenantId).stream().noneMatch(kb -> kb.getName().equals(kbName))) {
             throw new BizException(ErrorCode.KB_NOT_FOUND);
         }
+        tenantQuotaService.ensureModelCallAllowed(tenantId);
         // 会话 ID 在入口统一确定，保证流水线历史加载与响应返回一致
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         // 场景归一：未指定走 RAG 专用路由（也是熔断器维度）
@@ -56,6 +58,7 @@ public class RagChatService {
                 .question(question)
                 .sessionId(sid)
                 .userId(userId)
+                .tenantId(tenantId)
                 .knowledgeBaseName(kbName)
                 .topK(topK <= 0 ? 5 : topK)
                 .build());
@@ -75,6 +78,7 @@ public class RagChatService {
                 .modelName(chatModel.getClass().getSimpleName())
                 .sessionId(sid)
                 .userId(userId)
+                .tenantId(tenantId)
                 .success(!result.fallback())
                 .costMs(result.costMs())
                 .fallback(result.fallback())
@@ -82,8 +86,8 @@ public class RagChatService {
                 .build());
 
         // 写入对话历史：下一轮 RAG 才能引用本轮问答（在流水线读取之后写，避免当轮重复）
-        chatHistoryService.saveUser(sid, question, null, userId);
-        chatHistoryService.saveAssistant(sid, result.result(), chatModel.getClass().getSimpleName(), userId);
+        chatHistoryService.saveUser(sid, question, null, userId, tenantId);
+        chatHistoryService.saveAssistant(sid, result.result(), chatModel.getClass().getSimpleName(), userId, tenantId);
 
         return RagAnswerResponse.builder()
                 .sessionId(sid)
@@ -98,22 +102,24 @@ public class RagChatService {
      * RAG 流式问答：检索阶段同步完成（依赖向量库），生成阶段走 ChatModel.stream 原生流式，
      * 首 token 直出，无需等待整段生成（对比伪流式：首包延迟从"整段生成耗时"降为"首 token 耗时"）。
      */
-    public Flux<String> streamAsk(String sessionId, String question, String kbName, int topK, String scene, Long userId) {
+    public Flux<String> streamAsk(String sessionId, String question, String kbName, int topK, String scene, Long userId, Long tenantId) {
         if (kbName != null && !kbName.isBlank()
-                && knowledgeBaseService.list(userId).stream().noneMatch(kb -> kb.getName().equals(kbName))) {
+                && knowledgeBaseService.list(userId, tenantId).stream().noneMatch(kb -> kb.getName().equals(kbName))) {
             throw new BizException(ErrorCode.KB_NOT_FOUND);
         }
+        tenantQuotaService.ensureModelCallAllowed(tenantId);
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         RagContext context = ragPipeline.run(RagContext.builder()
                 .question(question)
                 .sessionId(sid)
                 .userId(userId)
+                .tenantId(tenantId)
                 .knowledgeBaseName(kbName)
                 .topK(topK <= 0 ? 5 : topK)
                 .build());
         ChatModel chatModel = routeContext.route(ModelScene.of(scene) == ModelScene.CHAT ? ModelScene.RAG : ModelScene.of(scene));
 
-        chatHistoryService.saveUser(sid, question, null, userId);
+        chatHistoryService.saveUser(sid, question, null, userId, tenantId);
         long start = System.currentTimeMillis();
         StringBuilder answerBuffer = new StringBuilder();
 
@@ -124,12 +130,13 @@ public class RagChatService {
                 // 累积完整答案用于历史落库与埋点
                 .doOnNext(answerBuffer::append)
                 .doOnComplete(() -> {
-                    chatHistoryService.saveAssistant(sid, answerBuffer.toString(), chatModel.getClass().getSimpleName(), userId);
+                    chatHistoryService.saveAssistant(sid, answerBuffer.toString(), chatModel.getClass().getSimpleName(), userId, tenantId);
                     eventPublisher.publish(AiCallEvent.builder()
                             .scene(ModelScene.RAG.name())
                             .modelName(chatModel.getClass().getSimpleName())
                             .sessionId(sid)
                             .userId(userId)
+                            .tenantId(tenantId)
                             .success(true)
                             .costMs(System.currentTimeMillis() - start)
                             .build());
@@ -142,6 +149,7 @@ public class RagChatService {
                             .modelName(chatModel.getClass().getSimpleName())
                             .sessionId(sid)
                             .userId(userId)
+                            .tenantId(tenantId)
                             .success(false)
                             .costMs(System.currentTimeMillis() - start)
                             .fallback(true)

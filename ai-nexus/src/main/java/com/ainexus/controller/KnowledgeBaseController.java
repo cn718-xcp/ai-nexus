@@ -32,32 +32,36 @@ public class KnowledgeBaseController {
     @PostMapping
     @RateLimit(permits = 5, windowSeconds = 10)
     public ApiResponse<KnowledgeBase> create(@Valid @RequestBody KnowledgeBaseCreateRequest req) {
-        return ApiResponse.ok(knowledgeBaseService.create(req.getName(), req.getDescription(), currentUserResolver.currentUserId()));
+        return ApiResponse.ok(knowledgeBaseService.create(req.getName(), req.getDescription(),
+                currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "知识库列表（鉴权开启时仅返回本人知识库）")
     @GetMapping
     public ApiResponse<List<KnowledgeBase>> list() {
-        return ApiResponse.ok(knowledgeBaseService.list(currentUserResolver.currentUserId()));
+        return ApiResponse.ok(knowledgeBaseService.list(currentUserResolver.currentUserId(),
+                currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "知识库文档列表")
     @GetMapping("/{kbId}/documents")
     public ApiResponse<List<KnowledgeDocument>> documents(@PathVariable Long kbId) {
-        return ApiResponse.ok(knowledgeBaseService.listDocuments(kbId, currentUserResolver.currentUserId()));
+        return ApiResponse.ok(knowledgeBaseService.listDocuments(kbId, currentUserResolver.currentUserId(),
+                currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "上传文档（txt/md/json/csv）并切分入库")
     @PostMapping("/{kbId}/documents")
     @RateLimit(permits = 5, windowSeconds = 10)
     public ApiResponse<KnowledgeDocument> upload(@PathVariable Long kbId, @RequestParam("file") MultipartFile file) {
-        return ApiResponse.ok(knowledgeBaseService.uploadDocument(kbId, file, currentUserResolver.currentUserId()));
+        return ApiResponse.ok(knowledgeBaseService.uploadDocument(kbId, file, currentUserResolver.currentUserId(),
+                currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "删除知识库（级联删除向量）")
     @DeleteMapping("/{kbId}")
     public ApiResponse<Void> delete(@PathVariable Long kbId) {
-        knowledgeBaseService.delete(kbId, currentUserResolver.currentUserId());
+        knowledgeBaseService.delete(kbId, currentUserResolver.currentUserId(), currentUserResolver.currentTenantId());
         return ApiResponse.ok();
     }
 }

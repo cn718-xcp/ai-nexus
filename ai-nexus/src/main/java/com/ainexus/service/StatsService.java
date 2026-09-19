@@ -19,13 +19,15 @@ public class StatsService {
     private final AiCallLogRepository aiCallLogRepository;
 
     @Transactional(readOnly = true)
-    public Map<String, Object> overview(Long userId) {
+    public Map<String, Object> overview(Long userId, Long tenantId) {
         Map<String, Object> result = new HashMap<>();
         // [scene, callDate, count, avgCostMs]；Map.of 不允许 null 值，聚合字段需判空后装入 HashMap
         // userId 为 null（鉴权关闭）时全局统计，否则按用户隔离
-        List<Object[]> byScene = userId == null
-                ? aiCallLogRepository.statBySceneAndDate()
-                : aiCallLogRepository.statBySceneAndDateForUser(userId);
+        // 隔离语义：租户统计（含全部成员）> 用户统计 > 全局
+        List<Object[]> byScene = tenantId != null
+                ? aiCallLogRepository.statBySceneAndDateForTenant(tenantId)
+                : (userId == null ? aiCallLogRepository.statBySceneAndDate()
+                : aiCallLogRepository.statBySceneAndDateForUser(userId));
         List<Map<String, Object>> sceneStats = byScene.stream().map(row -> {
             Map<String, Object> item = new HashMap<>();
             item.put("scene", row[0]);
@@ -37,9 +39,10 @@ public class StatsService {
         result.put("bySceneAndDate", sceneStats);
 
         // [modelName, count, promptTokens, completionTokens, failCount]
-        List<Object[]> byModel = userId == null
-                ? aiCallLogRepository.statByModel()
-                : aiCallLogRepository.statByModelForUser(userId);
+        List<Object[]> byModel = tenantId != null
+                ? aiCallLogRepository.statByModelForTenant(tenantId)
+                : (userId == null ? aiCallLogRepository.statByModel()
+                : aiCallLogRepository.statByModelForUser(userId));
         List<Map<String, Object>> modelStats = byModel.stream().map(row -> {
             Map<String, Object> item = new HashMap<>();
             item.put("model", row[0]);

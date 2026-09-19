@@ -72,7 +72,7 @@ public class AuthService {
 
     private TokenResponse issueTokens(SysUser user) {
         return new TokenResponse(
-                jwtService.issueAccessToken(user.getUsername(), user.getId()),
+                jwtService.issueAccessToken(user.getUsername(), user.getId(), user.getTenantId()),
                 jwtService.issueRefreshToken(user.getUsername(), user.getId()),
                 "Bearer",
                 accessTokenMinutes * 60L);

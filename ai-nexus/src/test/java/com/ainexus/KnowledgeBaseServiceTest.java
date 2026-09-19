@@ -55,12 +55,15 @@ class KnowledgeBaseServiceTest {
     @Mock
     private com.ainexus.common.metrics.BusinessMetrics metrics;
 
+    @Mock
+    private com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
+
     private KnowledgeBaseService service;
 
     @BeforeEach
     void setUp() throws InterruptedException {
         service = new KnowledgeBaseService(kbRepository, docRepository, vectorStore, retrievalCache,
-                redissonClient, metrics);
+                redissonClient, metrics, tenantQuotaService);
         // 分布式锁：单测环境直接放行
         org.redisson.api.RLock lock = org.mockito.Mockito.mock(org.redisson.api.RLock.class);
         org.mockito.Mockito.when(redissonClient.getLock(org.mockito.ArgumentMatchers.anyString())).thenReturn(lock);
@@ -73,7 +76,7 @@ class KnowledgeBaseServiceTest {
         when(kbRepository.existsByName("产品手册")).thenReturn(false);
         when(kbRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        KnowledgeBase kb = service.create("产品手册", "测试", null);
+        KnowledgeBase kb = service.create("产品手册", "测试", null, null);
 
         // Milvus Collection 名仅允许字母/数字/下划线：不允许中文，且为 kb_+md5前8位+规范化名
         String collectionName = kb.getCollectionName();
@@ -86,7 +89,7 @@ class KnowledgeBaseServiceTest {
         when(kbRepository.findById(1L)).thenReturn(Optional.of(KnowledgeBase.builder().id(1L).name("kb1").build()));
         MockMultipartFile pdf = new MockMultipartFile("file", "doc.pdf", "application/pdf", "binary".getBytes());
 
-        BizException e = assertThrows(BizException.class, () -> service.uploadDocument(1L, pdf, null));
+        BizException e = assertThrows(BizException.class, () -> service.uploadDocument(1L, pdf, null, null));
         assertEquals(ErrorCode.DOC_PARSE_ERROR, e.getErrorCode());
     }
 
@@ -98,7 +101,7 @@ class KnowledgeBaseServiceTest {
         MockMultipartFile txt = new MockMultipartFile("file", "a.txt", "text/plain",
                 "Spring AI 是 AI 应用框架。".getBytes(StandardCharsets.UTF_8));
 
-        KnowledgeDocument doc = service.uploadDocument(1L, txt, null);
+        KnowledgeDocument doc = service.uploadDocument(1L, txt, null, null);
 
         ArgumentCaptor<List<Document>> captor = ArgumentCaptor.forClass(List.class);
         verify(vectorStore).add(captor.capture());
@@ -122,7 +125,7 @@ class KnowledgeBaseServiceTest {
         when(docRepository.findByKbIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(
                 KnowledgeDocument.builder().kbId(1L).docUuid(docUuid).chunkCount(2).build()));
 
-        service.delete(1L, null);
+        service.delete(1L, null, null);
 
         ArgumentCaptor<List<String>> captor = ArgumentCaptor.forClass(List.class);
         verify(vectorStore).delete(captor.capture());

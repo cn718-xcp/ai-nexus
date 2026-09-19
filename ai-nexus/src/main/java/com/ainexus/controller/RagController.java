@@ -34,7 +34,8 @@ public class RagController {
     @RateLimit(permits = 10, windowSeconds = 10)
     public ApiResponse<RagAnswerResponse> ask(@Valid @RequestBody RagChatRequest req) {
         return ApiResponse.ok(ragChatService.ask(req.getSessionId(), req.getQuestion(),
-                req.getKnowledgeBaseName(), req.getTopK(), req.getScene(), currentUserResolver.currentUserId()));
+                req.getKnowledgeBaseName(), req.getTopK(), req.getScene(),
+                currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "RAG 问答（SSE 流式，检索完成后首 token 直出）")
@@ -42,6 +43,7 @@ public class RagController {
     @RateLimit(permits = 5, windowSeconds = 10)
     public Flux<String> stream(@Valid @RequestBody RagChatRequest req) {
         return ragChatService.streamAsk(req.getSessionId(), req.getQuestion(),
-                req.getKnowledgeBaseName(), req.getTopK(), req.getScene(), currentUserResolver.currentUserId());
+                req.getKnowledgeBaseName(), req.getTopK(), req.getScene(),
+                currentUserResolver.currentUserId(), currentUserResolver.currentTenantId());
     }
 }

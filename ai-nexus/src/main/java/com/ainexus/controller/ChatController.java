@@ -34,7 +34,8 @@ public class ChatController {
     // sessionId 为空时回退到消息内容做幂等维度，避免所有匿名请求共享 "null" Key 互相误杀
     @Idempotent(key = "#req.sessionId != null ? #req.sessionId : #req.message", ttlSeconds = 3)
     public ApiResponse<ChatAnswerResponse> chat(@Valid @RequestBody ChatRequest req) {
-        return ApiResponse.ok(chatService.chat(req.getSessionId(), req.getMessage(), currentUserResolver.currentUserId()));
+        return ApiResponse.ok(chatService.chat(req.getSessionId(), req.getMessage(),
+                currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "结构化输出：信息抽取（Spring AI 2.0 Structured Output）")

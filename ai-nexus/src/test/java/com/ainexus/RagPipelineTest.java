@@ -46,7 +46,7 @@ class RagPipelineTest {
         when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
                 new Document("片段一：Spring AI 是 AI 应用框架"),
                 new Document("片段二：Milvus 是向量数据库")));
-        when(chatHistoryService.loadWindow("s1", null)).thenReturn(List.of(
+        when(chatHistoryService.loadWindow("s1", null, null)).thenReturn(List.of(
                 ChatMessageRecord.builder().sessionId("s1").role("user").content("你好").build()));
 
         RagContext ctx = pipeline.run(RagContext.builder()

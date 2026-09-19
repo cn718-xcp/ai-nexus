@@ -77,7 +77,7 @@ public abstract class AbstractRagPipeline {
         StringBuilder sb = new StringBuilder();
         sb.append("你是企业知识助手，请仅依据下面的参考资料回答问题；参考资料中没有的内容请明确说明不知道，不要编造。\n\n");
         if (context.getSessionId() != null && !context.getSessionId().isBlank()) {
-            List<ChatMessageRecord> history = chatHistoryService.loadWindow(context.getSessionId(), context.getUserId());
+            List<ChatMessageRecord> history = chatHistoryService.loadWindow(context.getSessionId(), context.getUserId(), context.getTenantId());
             if (!history.isEmpty()) {
                 sb.append("## 历史对话\n");
                 history.forEach(m -> sb.append(m.getRole()).append(": ").append(m.getContent()).append('\n'));

@@ -40,6 +40,10 @@ public class ChatMessageRecord {
     @Column(name = "user_id")
     private Long userId;
 
+    /** 所属租户（多租户开启时隔离维度；关闭态为 NULL） */
+    @Column(name = "tenant_id")
+    private Long tenantId;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

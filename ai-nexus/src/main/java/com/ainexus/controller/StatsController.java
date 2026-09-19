@@ -27,6 +27,7 @@ public class StatsController {
     @Operation(summary = "调用统计总览（鉴权开启时按用户隔离）")
     @GetMapping("/overview")
     public ApiResponse<Map<String, Object>> overview() {
-        return ApiResponse.ok(statsService.overview(currentUserResolver.currentUserId()));
+        return ApiResponse.ok(statsService.overview(currentUserResolver.currentUserId(),
+                currentUserResolver.currentTenantId()));
     }
 }
