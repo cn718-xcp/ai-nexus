@@ -172,7 +172,27 @@ curl http://localhost:${APP_PORT:-8081}/health
 - 业务审计：audit_log 表记录 KB 增删/文档上传/登录注册（操作人/IP/结果）
 - 详见 [docs/operations.md](docs/operations.md)
 
-## 七、单元测试
+## 七、进阶能力（SaaS 治理与运维）
+
+### 多租户（`ainexus.tenant.enabled`，dev 默认关闭）
+- 租户 CRUD：`/api/v1/tenants`（创建含配额：知识库数/并发数/日调用量；启停；专属模型路由）
+- 二级隔离：`tenant_id + user_id` 双维度，越权统一 404；JWT access 令牌携带 tid
+- 配额管控：建库数量配额、每日模型调用限额（Redis 原子计数）、租户/用户双维 QPS
+
+### 模型服务池（`ainexus.model-pool.enabled`）
+- 多 Ollama 节点集群化，`round_robin / least_connections` 负载均衡（连接计数感知）
+- 定时健康探测：故障节点自动摘除、恢复回流，全故障回退主节点
+- 路由三层决策：租户专属路由 > 全局场景路由 > 默认模型
+
+### 动态配置中心（`ainexus.dynamic.enabled`）
+- 运行时调整熔断/并发/检索参数，无需重启；优先级：租户专属 > 灰度 > 全局 > yml
+- 管理接口 `/api/v1/config`，变更审计自动落库；详见 [docs/config-guide.md](docs/config-guide.md)
+
+### 性能压测
+- JDK 原生压测工具 `perf.LoadRunner`（chat/rag/stream/agent/限流场景，TP50-99/QPS）
+- 基线数据与容量评估见 [docs/performance.md](docs/performance.md)
+
+## 八、单元测试
 
 ```bash
 mvn test
@@ -190,7 +210,7 @@ mvn test
 | `StatsServiceTest` | 聚合转换、null 防护（不抛 NPE） |
 | `SpelKeyResolverTest` | 参数表达式、嵌套属性、null 归一化 |
 
-## 八、常见问题排查（FAQ）
+## 九、常见问题排查（FAQ）
 
 | 现象 | 原因与处理 |
 |---|---|
@@ -201,7 +221,7 @@ mvn test
 | 启动报 8080 端口占用 | 结束残留进程或改 `server.port` |
 | Redis 连接失败 | 限流/幂等依赖 Redis，检查 `spring.data.redis.*` 配置 |
 
-## 九、目录结构
+## 十、目录结构
 
 ```
 ai-nexus

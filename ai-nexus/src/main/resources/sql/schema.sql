@@ -129,3 +129,14 @@ CREATE TABLE IF NOT EXISTS sys_config (
     updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_key_tenant (config_key, tenant_id)
 ) ENGINE = InnoDB COMMENT '动态配置';
+
+-- 知识库 Chunk 备份表（上传时写入原始片段，支撑备份导出/导入与关键词检索扩展）
+CREATE TABLE IF NOT EXISTS knowledge_chunk (
+    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    kb_id      BIGINT       NOT NULL COMMENT '所属知识库',
+    doc_uuid   VARCHAR(64)  NOT NULL COMMENT '所属文档',
+    chunk_idx  INT          NOT NULL COMMENT '片段序号',
+    content    TEXT         NOT NULL COMMENT '片段原文',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_kb_doc (kb_id, doc_uuid)
+) ENGINE = InnoDB COMMENT '知识库 Chunk 备份';

@@ -58,12 +58,15 @@ class KnowledgeBaseServiceTest {
     @Mock
     private com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
 
+    @Mock
+    private com.ainexus.service.KnowledgeBackupService backupService;
+
     private KnowledgeBaseService service;
 
     @BeforeEach
     void setUp() throws InterruptedException {
         service = new KnowledgeBaseService(kbRepository, docRepository, vectorStore, retrievalCache,
-                redissonClient, metrics, tenantQuotaService);
+                redissonClient, metrics, tenantQuotaService, backupService);
         // 分布式锁：单测环境直接放行
         org.redisson.api.RLock lock = org.mockito.Mockito.mock(org.redisson.api.RLock.class);
         org.mockito.Mockito.when(redissonClient.getLock(org.mockito.ArgumentMatchers.anyString())).thenReturn(lock);

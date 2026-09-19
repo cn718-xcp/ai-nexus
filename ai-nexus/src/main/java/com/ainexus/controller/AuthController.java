@@ -1,6 +1,7 @@
 package com.ainexus.controller;
 
 import com.ainexus.common.api.ApiResponse;
+import com.ainexus.common.idempotent.Idempotent;
 import com.ainexus.common.ratelimit.RateLimit;
 import com.ainexus.dto.request.LoginRequest;
 import com.ainexus.dto.request.RefreshRequest;
@@ -30,6 +31,8 @@ public class AuthController {
     @Operation(summary = "注册")
     @PostMapping("/register")
     @RateLimit(permits = 5, windowSeconds = 60)
+    // 防重复注册：相同用户名 10s 窗口内幂等拒绝
+    @Idempotent(key = "#request.username", ttlSeconds = 10)
     public ApiResponse<Long> register(@Valid @RequestBody RegisterRequest request) {
         return ApiResponse.ok(authService.register(request));
     }

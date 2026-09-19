@@ -40,6 +40,7 @@ public class KnowledgeBaseService {
     private final org.redisson.api.RedissonClient redissonClient;
     private final com.ainexus.common.metrics.BusinessMetrics metrics;
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
+    private final KnowledgeBackupService backupService;
     private final TextChunker chunker = new TextChunker(800, 100);
 
     @Audited(action = "KB_CREATE", target = "#name")
@@ -167,6 +168,8 @@ public class KnowledgeBaseService {
                 .build();
         log.info("[kb] document ingested, kb={}, file={}, chunks={}", kb.getName(), doc.getFileName(), chunks.size());
         KnowledgeDocument saved = docRepository.save(doc);
+        // 片段原文落库备份（支撑向量数据导出/导入迁移）
+        backupService.saveChunkBackups(kb.getId(), docUuid, chunks);
         // 缓存主动失效：该知识库的检索缓存版本自增
         retrievalCache.bumpVersion(kb.getName());
         return saved;

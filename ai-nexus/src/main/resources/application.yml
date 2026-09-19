@@ -107,7 +107,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: health,info,prometheus,metrics,loggers
   endpoint:
     health:
       # /actuator/health 聚合各组件状态：DB/Redis/Milvus/Ollama
