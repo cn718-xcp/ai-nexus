@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
     collection_name VARCHAR(128) NOT NULL COMMENT 'Milvus Collection 名称',
     status          INT          NOT NULL DEFAULT 1 COMMENT '状态：1-启用 0-禁用',
     user_id         BIGINT       NULL COMMENT '所属用户（鉴权开启时隔离维度）',
+    tenant_id       BIGINT       NULL COMMENT '所属租户（多租户开启时隔离维度）',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME     NULL ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_name (name),
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS ai_call_log (
     completion_tokens BIGINT       NULL,
     fallback          INT          NOT NULL DEFAULT 0,
     user_id           BIGINT       NULL COMMENT '所属用户（鉴权开启时隔离维度）',
+    tenant_id         BIGINT       NULL COMMENT '所属租户（多租户开启时隔离维度）',
     error_message     VARCHAR(512) NULL,
     call_date         VARCHAR(10)  NOT NULL COMMENT '调用日期 yyyy-MM-dd',
     created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -69,6 +71,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
     id            BIGINT AUTO_INCREMENT PRIMARY KEY,
     username      VARCHAR(64)  NOT NULL COMMENT '用户名，唯一',
     password_hash VARCHAR(72)  NOT NULL COMMENT 'BCrypt 摘要',
+    tenant_id     BIGINT       NULL COMMENT '所属租户（多租户开启时生效）',
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_username (username)
 ) ENGINE = InnoDB COMMENT '系统用户';
@@ -88,6 +91,28 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail     VARCHAR(1024) NULL,
     client_ip  VARCHAR(64)  NULL,
     success    INT          NOT NULL,
+    tenant_id  BIGINT       NULL COMMENT '所属租户（多租户开启时隔离维度）',
     created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_action_time (action, created_at)
 ) ENGINE = InnoDB COMMENT '业务审计日志';
+
+-- 租户表（tenant.enabled=true 时启用多租户）
+CREATE TABLE IF NOT EXISTS sys_tenant (
+    id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name               VARCHAR(64)  NOT NULL COMMENT '租户名称',
+    code               VARCHAR(32)  NOT NULL COMMENT '租户编码，唯一',
+    status             INT          NOT NULL DEFAULT 1 COMMENT '1-启用 0-禁用',
+    kb_quota           INT          NOT NULL DEFAULT 5 COMMENT '知识库数量上限',
+    concurrent_quota   INT          NOT NULL DEFAULT 2 COMMENT '单租户并发调用上限',
+    daily_model_quota  INT          NOT NULL DEFAULT 1000 COMMENT '每日模型调用限额',
+    model_routes       TEXT         NULL COMMENT '租户专属路由 JSON {"CHAT":"model"}',
+    created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_code (code)
+) ENGINE = InnoDB COMMENT '租户';
+
+-- 租户隔离列（tenant.enabled=true 时生效；NULL 表示关闭态/历史数据，不受租户过滤）
+-- ALTER TABLE sys_user        ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
+-- ALTER TABLE knowledge_base  ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
+-- ALTER TABLE chat_message    ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
+-- ALTER TABLE ai_call_log     ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
+-- ALTER TABLE audit_log       ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';

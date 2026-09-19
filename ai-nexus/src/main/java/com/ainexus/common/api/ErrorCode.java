@@ -44,7 +44,26 @@ public enum ErrorCode {
     /** 未认证：缺少或无效令牌 */
     UNAUTHORIZED("E0001", "未认证，请先登录"),
     /** 令牌过期 */
-    TOKEN_EXPIRED("E0002", "令牌已过期，请刷新");
+    TOKEN_EXPIRED("E0002", "令牌已过期，请刷新"),
+
+    /** 租户不存在 */
+    TENANT_NOT_FOUND("F0001", "租户不存在"),
+    /** 租户已禁用 */
+    TENANT_DISABLED("F0002", "租户已禁用，请联系管理员"),
+    /** 知识库数量超出租户配额 */
+    TENANT_KB_QUOTA_EXCEEDED("F0003", "知识库数量已达租户配额上限"),
+    /** 每日模型调用限额用尽 */
+    TENANT_DAILY_QUOTA_EXCEEDED("F0004", "今日模型调用额度已用尽，请明日再试"),
+    /** 租户 QPS 超限 */
+    TENANT_QPS_EXCEEDED("F0005", "租户调用频率超限，请稍后再试"),
+
+    /** 配置项不存在 */
+    CONFIG_NOT_FOUND("G0001", "配置项不存在"),
+    /** 配置值不合法 */
+    CONFIG_INVALID("G0002", "配置值不合法"),
+
+    /** 模型节点不可用 */
+    MODEL_NODE_UNAVAILABLE("H0001", "模型节点暂不可用，请稍后再试");
 
     private final String code;
     private final String message;
