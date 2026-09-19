@@ -17,3 +17,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# 本地编排环境变量（含密码，禁止入库）
+.env
