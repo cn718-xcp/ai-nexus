@@ -46,12 +46,12 @@ public class LoadRunner {
             pool.submit(() -> {
                 try {
                     long t0 = System.currentTimeMillis();
-                    int status = execute(client, scenario, baseUrl, seq);
+                    Result result = execute(client, scenario, baseUrl, seq);
                     long cost = System.currentTimeMillis() - t0;
-                    latencies.add(cost);
-                    if (status == 429) {
+                    latencies.add(result.latencyMs());
+                    if (result.rateLimited()) {
                         rateLimited.incrementAndGet();
-                    } else if (status < 200 || status >= 300) {
+                    } else if (result.httpStatus() < 200 || result.httpStatus() >= 300) {
                         errors.incrementAndGet();
                     }
                 } catch (Exception e) {
@@ -69,11 +69,16 @@ public class LoadRunner {
     }
 
     /** 各场景请求构造与执行；返回 HTTP 状态码 */
-    private static int execute(HttpClient client, String scenario, String baseUrl, int seq) throws Exception {
+    /** 请求结果：HTTP 状态 + 是否被限流（业务码 D0001） */
+    record Result(int httpStatus, long latencyMs, boolean rateLimited) {
+    }
+
+    private static Result execute(HttpClient client, String scenario, String baseUrl, int seq) throws Exception {
+        long t0 = System.currentTimeMillis();
         switch (scenario) {
             case "chat" -> {
                 return post(client, baseUrl + "/api/v1/chat",
-                        "{\"sessionId\":\"perf-" + seq % 4 + "\",\"message\":\"用一句话介绍Spring AI\"}");
+                        "{\"sessionId\":\"perf-\" + seq % 4 + \"\",\"message\":\"用一句话介绍Spring AI\"}");
             }
             case "rag" -> {
                 return post(client, baseUrl + "/api/v1/rag/ask",
@@ -84,8 +89,9 @@ public class LoadRunner {
                         "{\"prompt\":\"现在几点？\"}");
             }
             case "rate-limit" -> {
+                // 每个请求独立 sessionId，绕开幂等维度，专测 @RateLimit 令牌桶
                 return post(client, baseUrl + "/api/v1/chat",
-                        "{\"sessionId\":\"perf-rl\",\"message\":\"hi\"}");
+                        "{\"sessionId\":\"perf-rl-" + seq + "\",\"message\":\"hi\"}");
             }
             case "stream" -> {
                 // SSE 流式：度量首 token 延迟（第一行 data 到达）
@@ -104,20 +110,26 @@ public class LoadRunner {
                         }
                     }
                 }
-                return resp.statusCode();
+                return new Result(resp.statusCode(), System.currentTimeMillis() - t0, false);
             }
             default -> throw new IllegalArgumentException("unknown scenario: " + scenario);
         }
     }
 
-    private static int post(HttpClient client, String url, String json) throws Exception {
+    private static Result post(HttpClient client, String url, String json) throws Exception {
+        long t0 = System.currentTimeMillis();
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
         HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
-        // 业务错误码也计入错误（如限流 D0001 已通过 HTTP 200 返回）
-        return resp.statusCode();
+        // 统一返回体业务码判定：D0001 限流（HTTP 200 + code=D0001 是本项目限流的返回形态）
+        String body = resp.body() == null ? "" : resp.body();
+        if (System.getenv("LR_DEBUG") != null) {
+            System.out.println("[debug] status=" + resp.statusCode() + " body=" + body.substring(0, Math.min(120, body.length())));
+        }
+        boolean rateLimited = body.contains("\"D0001\"");
+        return new Result(resp.statusCode(), System.currentTimeMillis() - t0, rateLimited);
     }
 
     private static void report(String scenario, int concurrency, int total, List<Long> latencies,

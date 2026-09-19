@@ -39,6 +39,7 @@ public class ModelNodePool {
     /** 健康探测函数：baseUrl -> 是否可达（默认 HTTP /api/tags） */
     private final Function<String, Boolean> healthProbe;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ModelNodePool(ModelNodeProperties properties) {
         this(properties, baseUrl -> {
             try {
@@ -53,7 +54,7 @@ public class ModelNodePool {
         });
     }
 
-    /** 测试构造：注入自定义探测函数 */
+    /** 测试构造：注入自定义探测函数（不交由 Spring 管理） */
     public ModelNodePool(ModelNodeProperties properties, Function<String, Boolean> healthProbe) {
         this.properties = properties;
         this.healthProbe = healthProbe;
