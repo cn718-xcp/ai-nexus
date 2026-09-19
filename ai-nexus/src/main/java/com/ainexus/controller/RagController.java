@@ -35,13 +35,11 @@ public class RagController {
                 req.getKnowledgeBaseName(), req.getTopK(), req.getScene()));
     }
 
-    @Operation(summary = "RAG 问答（SSE 流式）")
+    @Operation(summary = "RAG 问答（SSE 流式，检索完成后首 token 直出）")
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @RateLimit(permits = 5, windowSeconds = 10)
     public Flux<String> stream(@Valid @RequestBody RagChatRequest req) {
-        // 流式实现：基于同步答案的流式包装（生产可替换为 ChatModel.stream 原生流式）
-        RagAnswerResponse response = ragChatService.ask(req.getSessionId(), req.getQuestion(),
+        return ragChatService.streamAsk(req.getSessionId(), req.getQuestion(),
                 req.getKnowledgeBaseName(), req.getTopK(), req.getScene());
-        return Flux.fromArray(response.getAnswer().split("(?<=。)|(?<=\\n)"));
     }
 }

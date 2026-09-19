@@ -14,7 +14,9 @@ import com.ainexus.dto.response.RagAnswerResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
 import java.util.UUID;
 
@@ -78,5 +80,62 @@ public class RagChatService {
                 .referencedChunks(context.getChunks())
                 .fallback(result.fallback())
                 .build();
+    }
+
+    /**
+     * RAG 流式问答：检索阶段同步完成（依赖向量库），生成阶段走 ChatModel.stream 原生流式，
+     * 首 token 直出，无需等待整段生成（对比伪流式：首包延迟从"整段生成耗时"降为"首 token 耗时"）。
+     */
+    public Flux<String> streamAsk(String sessionId, String question, String kbName, int topK, String scene) {
+        if (kbName != null && !kbName.isBlank()
+                && knowledgeBaseService.list().stream().noneMatch(kb -> kb.getName().equals(kbName))) {
+            throw new BizException(ErrorCode.KB_NOT_FOUND);
+        }
+        String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
+        RagContext context = ragPipeline.run(RagContext.builder()
+                .question(question)
+                .sessionId(sid)
+                .knowledgeBaseName(kbName)
+                .topK(topK <= 0 ? 5 : topK)
+                .build());
+        ChatModel chatModel = routeContext.route(ModelScene.of(scene) == ModelScene.CHAT ? ModelScene.RAG : ModelScene.of(scene));
+
+        chatHistoryService.saveUser(sid, question, null);
+        long start = System.currentTimeMillis();
+        StringBuilder answerBuffer = new StringBuilder();
+
+        return chatModel.stream(new Prompt(context.getFinalPrompt()))
+                .map(resp -> resp.getResult() == null || resp.getResult().getOutput() == null
+                        ? "" : resp.getResult().getOutput().getText())
+                .filter(org.springframework.util.StringUtils::hasText)
+                // 累积完整答案用于历史落库与埋点
+                .doOnNext(answerBuffer::append)
+                .doOnComplete(() -> {
+                    chatHistoryService.saveAssistant(sid, answerBuffer.toString(), chatModel.getClass().getSimpleName());
+                    eventPublisher.publish(AiCallEvent.builder()
+                            .scene(ModelScene.RAG.name())
+                            .modelName(chatModel.getClass().getSimpleName())
+                            .sessionId(sid)
+                            .success(true)
+                            .costMs(System.currentTimeMillis() - start)
+                            .build());
+                })
+                // 流式失败降级：推送知识片段兜底，保持 SSE 通道正常关闭
+                .onErrorResume(e -> {
+                    log.warn("[rag-stream] stream failed, fallback to chunks, cause={}", e.getMessage());
+                    eventPublisher.publish(AiCallEvent.builder()
+                            .scene(ModelScene.RAG.name())
+                            .modelName(chatModel.getClass().getSimpleName())
+                            .sessionId(sid)
+                            .success(false)
+                            .costMs(System.currentTimeMillis() - start)
+                            .fallback(true)
+                            .errorMessage(e.getMessage())
+                            .build());
+                    String fallback = context.getChunks().isEmpty()
+                            ? "抱歉，模型暂时不可用。"
+                            : "抱歉，模型暂时不可用，以下是与问题相关的知识库片段：\n" + String.join("\n---\n", context.getChunks());
+                    return Flux.just(fallback);
+                });
     }
 }
