@@ -57,14 +57,17 @@ public class KnowledgeBaseService {
         return kbRepository.findAll();
     }
 
+    /** 支持的纯文本文档扩展名（二进制格式按 UTF-8 强读会产生乱码向量，必须在入口拦截） */
+    private static final java.util.Set<String> SUPPORTED_EXTENSIONS = java.util.Set.of("txt", "md", "json", "csv");
+
     /**
-     * 上传文档：解析 -> 切分 -> 带元数据向量化入库（knowledge_base_name / doc_id 元数据用于检索过滤与删除）。
-     * 支持 txt / md / json / csv 纯文本文档。
+     * 上传文档：扩展名校验 -> 解析 -> 切分 -> 带元数据向量化入库（knowledge_base_name / doc_id 元数据用于检索过滤与删除）。
      */
     @Transactional
     public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file) {
         KnowledgeBase kb = kbRepository.findById(kbId)
                 .orElseThrow(() -> new BizException(ErrorCode.KB_NOT_FOUND));
+        validateExtension(file);
         String text;
         try {
             text = new String(file.getBytes(), StandardCharsets.UTF_8);
@@ -96,6 +99,16 @@ public class KnowledgeBaseService {
                 .build();
         log.info("[kb] document ingested, kb={}, file={}, chunks={}", kb.getName(), doc.getFileName(), chunks.size());
         return docRepository.save(doc);
+    }
+
+    /** 扩展名白名单校验：双扩展名（如 a.pdf.txt 取 txt）按最后一个后缀判断 */
+    private void validateExtension(MultipartFile file) {
+        String fileName = file.getOriginalFilename();
+        int dotIndex = fileName == null ? -1 : fileName.lastIndexOf('.');
+        String ext = dotIndex < 0 ? "" : fileName.substring(dotIndex + 1).toLowerCase();
+        if (!SUPPORTED_EXTENSIONS.contains(ext)) {
+            throw new BizException(ErrorCode.DOC_PARSE_ERROR, "仅支持 " + SUPPORTED_EXTENSIONS + " 纯文本文档");
+        }
     }
 
     /** 删除知识库：级联删除其全部向量与文档记录。 */
