@@ -4,6 +4,7 @@ import cn.hutool.crypto.digest.DigestUtil;
 import com.ainexus.common.api.ErrorCode;
 import com.ainexus.common.constant.RedisKeyConstants;
 import com.ainexus.common.exception.BizException;
+import com.ainexus.common.expression.SpelKeyResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -11,11 +12,6 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.redisson.api.RedissonClient;
-import org.springframework.core.DefaultParameterNameDiscoverer;
-import org.springframework.core.ParameterNameDiscoverer;
-import org.springframework.expression.ExpressionParser;
-import org.springframework.expression.spel.standard.SpelExpressionParser;
-import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
@@ -33,9 +29,7 @@ import java.util.Arrays;
 public class IdempotentAspect {
 
     private final RedissonClient redissonClient;
-
-    private final ExpressionParser parser = new SpelExpressionParser();
-    private final ParameterNameDiscoverer nameDiscoverer = new DefaultParameterNameDiscoverer();
+    private final SpelKeyResolver spelKeyResolver;
 
     @Around("@annotation(idempotent)")
     public Object around(ProceedingJoinPoint pjp, Idempotent idempotent) throws Throwable {
@@ -50,19 +44,12 @@ public class IdempotentAspect {
         return pjp.proceed();
     }
 
+    /** 解析幂等维度：优先 SpEL 业务 Key，否则回退到请求参数摘要。 */
     private String resolveKey(ProceedingJoinPoint pjp, Idempotent idempotent) {
         Method method = ((MethodSignature) pjp.getSignature()).getMethod();
         String suffix;
         if (!idempotent.key().isEmpty()) {
-            StandardEvaluationContext ctx = new StandardEvaluationContext();
-            String[] names = nameDiscoverer.getParameterNames(method);
-            Object[] args = pjp.getArgs();
-            if (names != null) {
-                for (int i = 0; i < names.length; i++) {
-                    ctx.setVariable(names[i], args[i]);
-                }
-            }
-            suffix = String.valueOf(parser.parseExpression(idempotent.key()).getValue(ctx));
+            suffix = spelKeyResolver.resolve(idempotent.key(), method, pjp.getArgs());
         } else {
             suffix = DigestUtil.md5Hex(Arrays.toString(pjp.getArgs()));
         }

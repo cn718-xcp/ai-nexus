@@ -3,6 +3,7 @@ package com.ainexus.common.ratelimit;
 import com.ainexus.common.api.ErrorCode;
 import com.ainexus.common.constant.RedisKeyConstants;
 import com.ainexus.common.exception.BizException;
+import com.ainexus.common.expression.SpelKeyResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,11 +15,6 @@ import org.redisson.api.RRateLimiter;
 import org.redisson.api.RateIntervalUnit;
 import org.redisson.api.RateType;
 import org.redisson.api.RedissonClient;
-import org.springframework.core.DefaultParameterNameDiscoverer;
-import org.springframework.core.ParameterNameDiscoverer;
-import org.springframework.expression.ExpressionParser;
-import org.springframework.expression.spel.standard.SpelExpressionParser;
-import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -36,9 +32,7 @@ import java.lang.reflect.Method;
 public class RateLimitAspect {
 
     private final RedissonClient redissonClient;
-
-    private final ExpressionParser parser = new SpelExpressionParser();
-    private final ParameterNameDiscoverer nameDiscoverer = new DefaultParameterNameDiscoverer();
+    private final SpelKeyResolver spelKeyResolver;
 
     @Around("@annotation(rateLimit)")
     public Object around(ProceedingJoinPoint pjp, RateLimit rateLimit) throws Throwable {
@@ -58,15 +52,7 @@ public class RateLimitAspect {
         Method method = ((MethodSignature) pjp.getSignature()).getMethod();
         String suffix;
         if (!rateLimit.key().isEmpty()) {
-            StandardEvaluationContext ctx = new StandardEvaluationContext();
-            String[] names = nameDiscoverer.getParameterNames(method);
-            Object[] args = pjp.getArgs();
-            if (names != null) {
-                for (int i = 0; i < names.length; i++) {
-                    ctx.setVariable(names[i], args[i]);
-                }
-            }
-            suffix = String.valueOf(parser.parseExpression(rateLimit.key()).getValue(ctx));
+            suffix = spelKeyResolver.resolve(rateLimit.key(), method, pjp.getArgs());
         } else {
             suffix = clientIp();
         }
@@ -79,6 +65,7 @@ public class RateLimitAspect {
             return "unknown";
         }
         HttpServletRequest request = attrs.getRequest();
+        // 多级代理取第一个 IP；X-Forwarded-For 可被伪造，生产应结合网关白名单
         String ip = request.getHeader("X-Forwarded-For");
         if (ip != null && !ip.isBlank()) {
             return ip.split(",")[0].trim();
