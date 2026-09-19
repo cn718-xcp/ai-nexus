@@ -30,13 +30,20 @@ public class RetrievalCacheService {
     private static final Duration TTL = Duration.ofMinutes(10);
 
     private final RedissonClient redissonClient;
+    private final com.ainexus.common.config.DynamicConfigService dynamicConfig;
 
+    /** yml 静态默认值（动态配置优先级更高，可运行时开关用于压测对比/应急处置） */
     @Value("${ainexus.rag.cache-enabled:false}")
     private boolean cacheEnabled;
 
+    /** 缓存是否生效：动态配置 rag.cache-enabled 优先，yml 默认兜底 */
+    private boolean cacheEnabled() {
+        return dynamicConfig.getBool("rag.cache-enabled", cacheEnabled, null);
+    }
+
     /** 查询缓存：命中返回缓存文档，未命中返回 null */
     public List<Document> get(String kbName, String query, int topK) {
-        if (!cacheEnabled) {
+        if (!cacheEnabled()) {
             return null;
         }
         RBucket<String> bucket = redissonClient.getBucket(key(kbName, query, topK));
@@ -58,7 +65,7 @@ public class RetrievalCacheService {
 
     /** 写缓存（失败不影响主链路） */
     public void put(String kbName, String query, int topK, List<Document> documents) {
-        if (!cacheEnabled || documents == null || documents.isEmpty()) {
+        if (!cacheEnabled() || documents == null || documents.isEmpty()) {
             return;
         }
         try {
@@ -74,7 +81,7 @@ public class RetrievalCacheService {
 
     /** 知识库更新（上传/删除文档）时版本自增，旧缓存 Key 全部失效 */
     public void bumpVersion(String kbName) {
-        if (!cacheEnabled) {
+        if (!cacheEnabled()) {
             return;
         }
         redissonClient.getBucket(RedisKeyConstants.CHAT_CONTEXT + "ragver:" + kbName)
