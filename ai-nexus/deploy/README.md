@@ -7,7 +7,7 @@
 | Docker | 24+（推荐 27+） |
 | Docker Compose | v2.24+ |
 | 内存 | 建议 8GB+ 可用（Milvus standalone 约占 2GB，MySQL/Redis 轻量） |
-| 模型服务 | 宿主机已运行 Ollama 并拉取模型（容器默认复用宿主机 Ollama，模型无需进容器） |
+| 模型服务 | 宿主机已运行 Ollama 并拉取模型；**必须监听 0.0.0.0**：设置环境变量 `OLLAMA_HOST=0.0.0.0` 后重启 Ollama，否则容器无法访问宿主机模型服务 |
 
 ```bash
 # 宿主机模型准备（RAG 必需 embedding，多模态需要 llava）
@@ -43,10 +43,11 @@ curl http://localhost:${APP_PORT:-8081}/health
 | app | 8080 | 8081 | 业务接口/Swagger | 堆上限取容器内存 75%（自动） |
 | mysql | 3306 | 33061 | 元数据/历史/流水 | 数据卷 `mysql-data` 持久化 |
 | redis | 6379 | 16379 | 限流/幂等/缓存/锁 | AOF 持久化开启 |
-| milvus | 19530 | 19531 | 向量存储 | 约 2GB 内存 |
+| milvus | 19530 | 19531 | 向量存储（内嵌 etcd + 本地存储，单容器轻量部署） | 约 2GB 内存 |
 | milvus 指标 | 9091 | 19091 | 健康检查/Metrics | - |
-| minio | 9000 | 19090 | Milvus 对象存储 | 数据卷 `minio-data` |
-| etcd | 2379 | 不暴露 | Milvus 元数据 | 数据卷 `etcd-data` |
+
+> Milvus 采用官方 standalone 内嵌 etcd + 本地存储模式，单容器即可运行，无需独立 etcd/minio；
+> 生产大规模部署可切换为集群模式（独立 etcd + minio + 多 milvus 节点）。
 
 所有端口通过 `.env` 调整；数据卷命名空间隔离，`docker compose down` 不丢数据，
 `docker compose down -v` 才会清空。

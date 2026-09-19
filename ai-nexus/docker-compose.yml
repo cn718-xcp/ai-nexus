@@ -1,5 +1,5 @@
 # =====================================================================
-# AI Nexus 一键编排：应用 + MySQL 8.0 + Redis + Milvus(etcd+minio)
+# AI Nexus 一键编排：应用 + MySQL 8.0 + Redis + Milvus（内嵌 etcd/本地存储单容器）
 # 使用：cp deploy/.env.example .env && docker compose up -d
 # 端口默认避开宿主机常用端口，均可在 .env 中调整
 # =====================================================================
@@ -30,7 +30,7 @@ services:
       MILVUS_PORT: 19530
       MILVUS_USER: ${MILVUS_USER:-root}
       MILVUS_PASSWORD: ${MILVUS_PASSWORD:-milvus}
-      # 默认使用宿主机 Ollama（docker 只编排应用与存储，模型服务不进容器可复用本机已拉取的模型）
+      # 默认使用宿主机 Ollama（模型不进容器，复用本机已拉取的模型与配置）
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       TZ: Asia/Shanghai
     ports:
@@ -83,59 +83,25 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # ---------------- Milvus 依赖：etcd（元数据） + minio（对象存储） ----------------
-  etcd:
-    image: bitnami/etcd:3.5.14
-    container_name: ai-nexus-etcd
-    environment:
-      ALLOW_NONE_AUTHENTICATION: "yes"
-      ETCD_AUTO_COMPACTION_MODE: revision
-      ETCD_AUTO_COMPACTION_RETENTION: "1000"
-      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
-      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
-      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
-    command: /opt/bitnami/scripts/etcd/run.sh --data-dir /bitnami/etcd/data
-    volumes:
-      - etcd-data:/bitnami/etcd
-    restart: unless-stopped
-
-  minio:
-    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
-    container_name: ai-nexus-minio
-    environment:
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-    command: minio server /minio_data
-    ports:
-      - "${MINIO_PORT:-19090}:9000"
-    volumes:
-      - minio-data:/minio_data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    restart: unless-stopped
-
-  # ---------------- Milvus standalone（向量存储） ----------------
+  # ---------------- Milvus standalone（内嵌 etcd + 本地存储，单容器轻量部署） ----------------
   milvus:
     image: milvusdb/milvus:v2.5.4
     container_name: ai-nexus-milvus
     command: ["milvus", "run", "standalone"]
     environment:
-      ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: minio:9000
-      # 单机嵌入式运行参数：关闭不需要的组件，控制资源占用
-      COMMON_STORAGETYPE: remote
+      # 内嵌 etcd：元数据存储于本地 RocksDB，免去独立 etcd/minio 容器
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/advanced/etcd.yaml
+      COMMON_STORAGETYPE: local
+      # 认证与授权配置
+      COMMON_SECURITY_AUTHORIZATIONENABLED: "true"
+      COMMON_SECURITY_DEFAULTROOTPASSWORD: ${MILVUS_PASSWORD:-milvus}
     ports:
       - "${MILVUS_PORT:-19531}:19530"
       - "${MILVUS_METRICS_PORT:-19091}:9091"
     volumes:
       - milvus-data:/var/lib/milvus
-    depends_on:
-      - etcd
-      - minio
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9091/healthz"]
       interval: 15s
@@ -158,7 +124,5 @@ services:
 volumes:
   mysql-data:
   redis-data:
-  etcd-data:
-  minio-data:
   milvus-data:
   ollama-models:
