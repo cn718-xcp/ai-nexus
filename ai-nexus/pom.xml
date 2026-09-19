@@ -109,6 +109,7 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-vector-store-milvus</artifactId>
         </dependency>
+        <!-- OpenAI 协议适配：自研轻量 ChatModel 适配器（OpenAiCompatChatModel，零新增依赖） -->
         <!-- Advisor / 文档切分核心（随 starter 引入，显式声明保证版本锁定） -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

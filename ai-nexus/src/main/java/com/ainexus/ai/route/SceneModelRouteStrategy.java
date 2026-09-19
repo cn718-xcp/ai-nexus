@@ -37,22 +37,23 @@ public class SceneModelRouteStrategy implements ModelRouteStrategy {
     private final ModelNodePool nodePool;
     private final TenantQuotaService tenantQuotaService;
 
+    private final com.ainexus.ai.model.ModelRegistry modelRegistry;
+
     /** (nodeBaseUrl|modelName) -> ChatModel 工厂缓存 */
     private final Map<String, ChatModel> pooledFactory = new ConcurrentHashMap<>();
-
-    /** modelKey -> 单节点模式 ChatModel 缓存 */
-    private final Map<String, ChatModel> modelFactory = new ConcurrentHashMap<>();
 
     public SceneModelRouteStrategy(ModelRouteProperties properties,
                                    OllamaChatModel primaryChatModel,
                                    OllamaApi ollamaApi,
                                    ModelNodePool nodePool,
-                                   TenantQuotaService tenantQuotaService) {
+                                   TenantQuotaService tenantQuotaService,
+                                   com.ainexus.ai.model.ModelRegistry modelRegistry) {
         this.properties = properties;
         this.primaryChatModel = primaryChatModel;
         this.ollamaApi = ollamaApi;
         this.nodePool = nodePool;
         this.tenantQuotaService = tenantQuotaService;
+        this.modelRegistry = modelRegistry;
     }
 
     @Override
@@ -87,14 +88,14 @@ public class SceneModelRouteStrategy implements ModelRouteStrategy {
             log.warn("[model-pool] no healthy node, fallback to primary");
         }
 
-        // 单节点模式：主模型命中默认名则直接复用容器实例，否则按配置新建
+        // 单节点模式：默认模型直接复用容器实例；模型键（provider:model）走注册表；普通名走 Ollama
         if (properties.getDefaultModel().equals(modelName)) {
             return primaryChatModel;
         }
-        return modelFactory.computeIfAbsent(modelName, name -> OllamaChatModel.builder()
-                .ollamaApi(ollamaApi)
-                .options(OllamaChatOptions.builder().model(name).build())
-                .build());
+        if (modelName.contains(":")) {
+            return modelRegistry.resolve(modelName);
+        }
+        return modelRegistry.resolve("ollama:" + modelName);
     }
 
     /** 模型名决策：租户专属路由 > 全局场景路由 > 默认模型 */
