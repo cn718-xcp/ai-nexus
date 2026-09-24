@@ -1,15 +1,13 @@
 package com.ainexus.service;
 
-import com.ainexus.ai.security.PromptInjectionDetector;
-import com.ainexus.ai.security.SensitiveWordFilter;
-import com.ainexus.common.api.ErrorCode;
-import com.ainexus.common.exception.BizException;
 import com.ainexus.ai.memory.ChatHistoryService;
 import com.ainexus.ai.resilience.ModelCallResilienceTemplate;
 import com.ainexus.ai.route.ModelRouteContext;
 import com.ainexus.ai.route.ModelScene;
 import com.ainexus.ai.stats.AiCallEvent;
 import com.ainexus.ai.stats.AiCallEventPublisher;
+import com.ainexus.common.api.ErrorCode;
+import com.ainexus.common.exception.BizException;
 import com.ainexus.domain.entity.ChatMessageRecord;
 import com.ainexus.dto.response.ChatAnswerResponse;
 import lombok.RequiredArgsConstructor;
@@ -55,12 +53,15 @@ public class ChatService {
     @org.springframework.beans.factory.annotation.Value("${ainexus.models.fallback:}")
     private String fallbackModelKeys;
 
-    /** 备用模型键解析（逗号分隔，按序降级） */
+    /**
+     * 备用模型键解析（逗号分隔，按序降级）
+     */
     private List<String> fallbackKeys() {
         return fallbackModelKeys == null || fallbackModelKeys.isBlank()
                 ? List.of() : java.util.Arrays.stream(fallbackModelKeys.split(","))
                 .map(String::trim).filter(k -> !k.isEmpty()).toList();
     }
+
     @org.springframework.beans.factory.annotation.Value("${ainexus.models.gray-key:}")
     private String grayModelKey;
     @org.springframework.beans.factory.annotation.Value("${ainexus.models.gray-ratio:0.0}")
@@ -77,7 +78,7 @@ public class ChatService {
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         metrics.onChatRequest();
         // 内容安全：注入检测 + 输入敏感词（security.enabled=false 直通）
-        var injection = injectionDetector.detect(message);
+        var injection = injectionDetector.detect(message); // 检测非法正则
         if (injection.injected()) {
             throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含不允许的内容");
         }

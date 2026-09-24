@@ -144,6 +144,14 @@ public class RagChatService {
             throw new BizException(ErrorCode.KB_NOT_FOUND);
         }
         tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
+        // 内容安全与同步 ask 保持一致：注入检测 + 输入敏感词（security.enabled=false 直通）。
+        // 异常在建流前同步抛出 → HTTP 200 JSON ApiResponse，前端流式客户端按 content-type 识别
+        if (injectionDetector.detect(question).injected()) {
+            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含不允许的内容");
+        }
+        if (sensitiveWordFilter.containsSensitive(question)) {
+            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含敏感词");
+        }
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         RagContext context = ragPipeline.run(RagContext.builder()
                 .question(question)
@@ -208,7 +216,9 @@ public class RagChatService {
                 .documentName((String) d.getMetadata().get("file_name"))
                 .documentId((String) d.getMetadata().get("doc_id"))
                 .chunkIndex(d.getMetadata().get("chunk_index") instanceof Number n ? n.intValue() : null)
-                .score(d.getScore())
+                // 检索缓存命中的文档 score 转存于 metadata["cached_score"]，此处回退读取保持引用分一致
+                .score(d.getScore() != null ? d.getScore()
+                        : d.getMetadata().get("cached_score") instanceof Number n ? n.doubleValue() : null)
                 .startOffset(d.getMetadata().get("char_start") instanceof Number n ? n.intValue() : null)
                 .endOffset(d.getMetadata().get("char_end") instanceof Number n ? n.intValue() : null)
                 .section((String) d.getMetadata().get("section"))

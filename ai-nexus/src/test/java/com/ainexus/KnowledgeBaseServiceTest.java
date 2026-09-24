@@ -66,7 +66,10 @@ class KnowledgeBaseServiceTest {
     @BeforeEach
     void setUp() throws InterruptedException {
         service = new KnowledgeBaseService(kbRepository, docRepository, vectorStore, retrievalCache,
-                redissonClient, metrics, tenantQuotaService, documentIngestor);
+                redissonClient, metrics, tenantQuotaService, documentIngestor,
+                // 显式事务模板：单测用 mock 事务管理器，execute 回调同步执行，语义与生产一致
+                new org.springframework.transaction.support.TransactionTemplate(
+                        org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class)));
         // 分布式锁：单测环境直接放行
         org.redisson.api.RLock lock = org.mockito.Mockito.mock(org.redisson.api.RLock.class);
         org.mockito.Mockito.when(redissonClient.getLock(org.mockito.ArgumentMatchers.anyString())).thenReturn(lock);

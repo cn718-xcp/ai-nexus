@@ -5,7 +5,6 @@ import com.ainexus.common.auth.CurrentUserResolver;
 import com.ainexus.common.idempotent.Idempotent;
 import com.ainexus.common.ratelimit.RateLimit;
 import com.ainexus.dto.request.ChatRequest;
-import com.ainexus.dto.request.KnowledgeBaseCreateRequest;
 import com.ainexus.dto.response.ChatAnswerResponse;
 import com.ainexus.service.ChatService;
 import com.ainexus.service.StructuredOutputService;
@@ -13,7 +12,13 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
@@ -41,10 +46,11 @@ public class ChatController {
                 currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
     }
 
-    @Operation(summary = "会话回放（全链路追溯：原始 Prompt/回答/模型/时间）")
+    @Operation(summary = "会话回放（全链路追溯：原始 Prompt/回答/模型/时间，鉴权开启时按用户隔离）")
     @GetMapping("/{sessionId}/replay")
     public ApiResponse<List<com.ainexus.domain.entity.ChatMessageRecord>> replay(@PathVariable String sessionId) {
-        return ApiResponse.ok(chatHistoryService.replay(sessionId));
+        return ApiResponse.ok(chatHistoryService.replay(sessionId,
+                currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "结构化输出：信息抽取（Spring AI 2.0 Structured Output）")

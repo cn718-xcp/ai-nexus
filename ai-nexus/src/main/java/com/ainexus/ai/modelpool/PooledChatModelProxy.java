@@ -34,19 +34,24 @@ public final class PooledChatModelProxy implements InvocationHandler {
 
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-        pool.begin(node);
         boolean streaming = Flux.class.isAssignableFrom(method.getReturnType());
-        try {
-            Object result = method.invoke(delegate, args);
-            if (streaming && result instanceof Flux<?> flux) {
-                // 流式接口：连接占用至流终止（完成/异常/取消）再释放
-                return flux.doOnTerminate(() -> pool.end(node));
-            }
-            return result;
-        } finally {
-            if (!streaming) {
+        if (!streaming) {
+            pool.begin(node);
+            try {
+                return method.invoke(delegate, args);
+            } finally {
                 pool.end(node);
             }
+        }
+        // 流式：doFinally 覆盖 完成/异常/取消（含 SSE 客户端断开）全部终止信号；
+        // 流创建前的同步异常（如请求构建失败）也必须归还计数，否则 least_connections 永久失真
+        pool.begin(node);
+        try {
+            Object result = method.invoke(delegate, args);
+            return ((Flux<?>) result).doFinally(signal -> pool.end(node));
+        } catch (Throwable e) {
+            pool.end(node);
+            throw e;
         }
     }
 }

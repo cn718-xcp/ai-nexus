@@ -41,6 +41,8 @@ public class KnowledgeBaseService {
     private final com.ainexus.common.metrics.BusinessMetrics metrics;
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
     private final com.ainexus.ai.rag.DocumentIngestor documentIngestor;
+    /** 显式事务模板：锁边界在事务外、事务范围收敛到实际写库段（避免锁等待与向量化 IO 长期占用 DB 连接） */
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
 
     @Audited(action = "KB_CREATE", target = "#name")
     @Transactional
@@ -106,9 +108,9 @@ public class KnowledgeBaseService {
     /**
      * 上传文档：扩展名校验 -> 解析 -> 切分 -> 带元数据向量化入库（knowledge_base_name / doc_id 元数据用于检索过滤与删除）。
      * Redisson 分布式锁按 kbId 串行化，防止并发上传导致向量与元数据不一致。
+     * 锁在事务外获取：等锁与 embedding 网络调用不占用 DB 连接，且 unlock 发生在事务提交之后（锁窗口覆盖提交点）。
      */
     @Audited(action = "DOC_UPLOAD", target = "#file?.originalFilename")
-    @Transactional
     public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file, Long userId, Long tenantId) {
         KnowledgeBase kb = requireOwnedKb(kbId, userId, tenantId);
         validateExtension(file);
@@ -120,7 +122,7 @@ public class KnowledgeBaseService {
             if (!locked) {
                 throw new BizException(ErrorCode.BIZ_ERROR, "该知识库正在处理其他操作，请稍后再试");
             }
-            return doUpload(kb, file);
+            return txTemplate.execute(status -> doUpload(kb, file));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");
@@ -174,8 +176,7 @@ public class KnowledgeBaseService {
         }
     }
 
-    /** 删除知识库：级联删除其全部向量与文档记录。 */
-    @Transactional
+    /** 删除知识库：级联删除其全部向量与文档记录（锁在事务外获取，事务范围收敛到实际写库段）。 */
     @Audited(action = "KB_DELETE", target = "#kbId")
     public void delete(Long kbId, Long userId, Long tenantId) {
         KnowledgeBase kb = requireOwnedKb(kbId, userId, tenantId);
@@ -186,23 +187,25 @@ public class KnowledgeBaseService {
             if (!locked) {
                 throw new BizException(ErrorCode.BIZ_ERROR, "该知识库正在处理其他操作，请稍后再试");
             }
-            List<KnowledgeDocument> docs = docRepository.findByKbIdOrderByCreatedAtDesc(kbId);
-            for (KnowledgeDocument doc : docs) {
-                List<String> chunkIds = new ArrayList<>(doc.getChunkCount());
-                for (int i = 0; i < doc.getChunkCount(); i++) {
-                    chunkIds.add(UUID.nameUUIDFromBytes((doc.getDocUuid() + ":" + i)
-                            .getBytes(StandardCharsets.UTF_8)).toString());
+            txTemplate.executeWithoutResult(status -> {
+                List<KnowledgeDocument> docs = docRepository.findByKbIdOrderByCreatedAtDesc(kbId);
+                for (KnowledgeDocument doc : docs) {
+                    List<String> chunkIds = new ArrayList<>(doc.getChunkCount());
+                    for (int i = 0; i < doc.getChunkCount(); i++) {
+                        chunkIds.add(UUID.nameUUIDFromBytes((doc.getDocUuid() + ":" + i)
+                                .getBytes(StandardCharsets.UTF_8)).toString());
+                    }
+                    // chunkCount 为 0 的脏数据会导致空列表删除调用异常，跳过
+                    if (!chunkIds.isEmpty()) {
+                        vectorStore.delete(chunkIds);
+                    }
                 }
-                // chunkCount 为 0 的脏数据会导致空列表删除调用异常，跳过
-                if (!chunkIds.isEmpty()) {
-                    vectorStore.delete(chunkIds);
-                }
-            }
-            docRepository.deleteAll(docs);
-            kbRepository.delete(kb);
-            metrics.onKbChanged(kbRepository.count());
-            log.info("[kb] knowledge base deleted, name={}, docs={}", kb.getName(), docs.size());
-            retrievalCache.bumpVersion(kb.getName());
+                docRepository.deleteAll(docs);
+                kbRepository.delete(kb);
+                metrics.onKbChanged(kbRepository.count());
+                log.info("[kb] knowledge base deleted, name={}, docs={}", kb.getName(), docs.size());
+                retrievalCache.bumpVersion(kb.getName());
+            });
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");

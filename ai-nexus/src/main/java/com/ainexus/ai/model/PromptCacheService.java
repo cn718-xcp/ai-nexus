@@ -1,7 +1,6 @@
 package com.ainexus.ai.model;
 
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RBucket;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -27,21 +26,22 @@ public class PromptCacheService {
     }
 
     /**
-     * @return 命中返回上次结果；未命中返回 null 并占位（执行完成后调用 write 回写）
+     * @return 命中返回上次结果；未命中返回 null 并写独立占位锁（执行完成后调用 write 回写）
      */
     public String getAndLock(String promptHash) {
         if (dedupeTtlSeconds <= 0) {
             return null;
         }
-        RBucket<String> bucket = redissonClient.getBucket("ainexus:model:prompt:" + promptHash);
-        String cached = bucket.get();
-        if (cached != null) {
+        String baseKey = "ainexus:model:prompt:" + promptHash;
+        String cached = redissonClient.<String>getBucket(baseKey).get();
+        if (cached != null && !cached.isBlank()) {
             log.info("[prompt-cache] hit, hash={}", promptHash);
-        } else {
-            // 占位防止同 Prompt 并发重复推理（短锁，完成后由 write 覆盖）
-            bucket.set("", Duration.ofSeconds(Math.min(dedupeTtlSeconds, 5)));
+            return cached;
         }
-        return cached;
+        // 占位锁写独立 Key：结果 Key 只在 write 后可见，避免空串占位被误判为命中返回空答案
+        redissonClient.getBucket(baseKey + ":lock")
+                .setIfAbsent("1", Duration.ofSeconds(Math.min(dedupeTtlSeconds, 5)));
+        return null;
     }
 
     public void write(String promptHash, String answer) {

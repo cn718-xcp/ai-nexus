@@ -41,17 +41,28 @@ public class ModelNodePool {
 
     @org.springframework.beans.factory.annotation.Autowired
     public ModelNodePool(ModelNodeProperties properties) {
-        this(properties, baseUrl -> {
+        this(properties, defaultProbe(properties.getHealthTimeoutMs()));
+    }
+
+    /**
+     * 默认探测函数：GET /api/tags。
+     * 按 health-timeout-ms 设置连接/读超时：节点挂起（不拒绝连接但不响应）时探测线程
+     * 若无超时会无限期阻塞，导致全部节点的摘除/回流停摆。
+     */
+    static Function<String, Boolean> defaultProbe(long timeoutMs) {
+        org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory =
+                new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(java.time.Duration.ofMillis(timeoutMs));
+        requestFactory.setReadTimeout(java.time.Duration.ofMillis(timeoutMs));
+        RestClient probeClient = RestClient.builder().requestFactory(requestFactory).build();
+        return baseUrl -> {
             try {
-                RestClient.builder().baseUrl(baseUrl).build().get()
-                        .uri("/api/tags")
-                        .retrieve()
-                        .toBodilessEntity();
+                probeClient.get().uri(baseUrl + "/api/tags").retrieve().toBodilessEntity();
                 return true;
             } catch (Exception e) {
                 return false;
             }
-        });
+        };
     }
 
     /** 测试构造：注入自定义探测函数（不交由 Spring 管理） */
@@ -69,9 +80,12 @@ public class ModelNodePool {
         }
     }
 
-    /** 节点池是否可用（开启且有健康节点） */
+    /**
+     * 节点池是否可用（开启且存在健康节点）。
+     * 单健康节点同样参与调度：避免 "2 节点死 1" 时健康节点被闲置、流量全部压向池外主节点。
+     */
     public boolean isAvailable() {
-        return properties.isEnabled() && healthyNodes().size() > 1;
+        return properties.isEnabled() && !healthyNodes().isEmpty();
     }
 
     /** 按策略选择节点：不可用时返回 null（调用方回退主节点） */
@@ -93,11 +107,11 @@ public class ModelNodePool {
 
     /** 连接计数（least_connections 依据；调用结束必须调用 end） */
     public void begin(ModelNode node) {
-        node.setActiveConnections(node.getActiveConnections() + 1);
+        node.incrementConnections();
     }
 
     public void end(ModelNode node) {
-        node.setActiveConnections(Math.max(0, node.getActiveConnections() - 1));
+        node.decrementConnections();
     }
 
     /** 获取全部节点（按插入顺序，供路由层构建 ChatModel 与测试断言） */

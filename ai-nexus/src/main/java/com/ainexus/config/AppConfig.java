@@ -42,6 +42,8 @@ public class AppConfig {
         executor.setMaxPoolSize(4);
         executor.setQueueCapacity(1000);
         executor.setThreadNamePrefix("ai-call-log-");
+        // 统计/审计属可丢失旁路：队列满时静默丢弃（记录告警），绝不让拒绝异常沿 publish 抛回业务主链路
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
         executor.initialize();
         return executor;
     }

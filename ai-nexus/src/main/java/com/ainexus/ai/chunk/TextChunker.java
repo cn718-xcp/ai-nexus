@@ -49,8 +49,10 @@ public class TextChunker {
             return;
         }
         out.add(text.substring(start, splitAt).trim());
-        // overlap：下一片起点回退 overlap 个字符，保证上下文衔接
-        recursiveSplit(text, Math.max(splitAt - overlap, splitAt - 1), sepIndex, out);
+        // overlap：下一片起点回退 overlap 个字符保证上下文衔接；
+        // 下限必须取 start + 1（而非 splitAt - 1）：分隔符恰好落在 start 处时
+        // splitAt == start + 1，取 splitAt - 1 会使起点原地踏步导致无限递归 StackOverflowError
+        recursiveSplit(text, Math.max(splitAt - overlap, start + 1), sepIndex, out);
     }
 
     /** 在 [start+chunkSize] 前的窗口内，尽量找最后一个分隔符位置 */

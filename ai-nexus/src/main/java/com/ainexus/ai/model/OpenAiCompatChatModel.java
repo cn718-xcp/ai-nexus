@@ -29,6 +29,10 @@ public class OpenAiCompatChatModel implements ChatModel {
     private final String model;
     private final transient RestClient restClient;
 
+    /** 共享 ObjectMapper：请求体序列化与响应解析（避免每次调用新建） */
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     public OpenAiCompatChatModel(String baseUrl, String apiKey, String model) {
         this.baseUrl = baseUrl == null ? "https://api.openai.com" : baseUrl.replaceAll("/$", "");
         this.apiKey = apiKey;
@@ -50,30 +54,46 @@ public class OpenAiCompatChatModel implements ChatModel {
         return parseResponse(response);
     }
 
-    /** ChatModel 接口默认选项（协议端点由配置决定，无本地默认选项） */
+    /** ChatModel 契约要求非 null：协议端点的默认选项由服务端决定，返回空默认选项 */
     @Override
     public org.springframework.ai.chat.prompt.ChatOptions getDefaultOptions() {
-        return null;
+        return org.springframework.ai.chat.prompt.ChatOptions.builder().build();
     }
 
-    /** 组装 /v1/chat/completions 请求体（纯函数） */
+    /** 组装 /v1/chat/completions 请求体（纯函数，Jackson 序列化完整转义控制字符） */
     String buildRequestBody(Prompt prompt, String model) {
         List<Map<String, String>> messages = new ArrayList<>();
         prompt.getInstructions().forEach(m ->
                 messages.add(Map.of("role", roleOf(m.getMessageType().getValue()),
                         "content", m.getText() == null ? "" : m.getText())));
-        return String.format("{\"model\":\"%s\",\"messages\":%s}",
-                escape(model), toJacksonArray(messages));
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("model", model);
+        body.put("messages", messages);
+        // 透传调用方设置的采样参数（未设置则省略，交由服务端默认值）
+        org.springframework.ai.chat.prompt.ChatOptions opts = prompt.getOptions();
+        if (opts != null) {
+            if (opts.getTemperature() != null) {
+                body.put("temperature", opts.getTemperature());
+            }
+            if (opts.getMaxTokens() != null) {
+                body.put("max_tokens", opts.getMaxTokens());
+            }
+        }
+        try {
+            return MAPPER.writeValueAsString(body);
+        } catch (Exception e) {
+            throw new IllegalStateException("构建 OpenAI 协议请求体失败: " + e.getMessage(), e);
+        }
     }
 
-    /** 解析响应：choices[0].message.content + usage（纯函数） */
+    /** 解析响应：choices[0].message.content（纯函数）。解析失败上抛交由上层重试/降级，避免静默空回答 */
     ChatResponse parseResponse(String response) {
-        String content = "";
+        String content;
         try {
-            JsonNode root = new ObjectMapper().readTree(response);
+            JsonNode root = MAPPER.readTree(response);
             content = root.path("choices").path(0).path("message").path("content").asText("");
         } catch (Exception e) {
-            log.warn("[openai-compat] response parse failed: {}", e.getMessage());
+            throw new IllegalStateException("OpenAI 协议响应解析失败: " + e.getMessage(), e);
         }
         return new ChatResponse(List.of(new Generation(new AssistantMessage(content))));
     }
@@ -84,23 +104,5 @@ public class OpenAiCompatChatModel implements ChatModel {
             case "system" -> "system";
             default -> "user";
         };
-    }
-
-    private String toJacksonArray(List<Map<String, String>> list) {
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < list.size(); i++) {
-            Map<String, String> m = list.get(i);
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(String.format("{\"role\":\"%s\",\"content\":\"%s\"}",
-                    escape(m.get("role")), escape(m.get("content"))));
-        }
-        return sb.append(']').toString();
-    }
-
-    private String escape(String s) {
-        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "").replace("\t", "\\t");
     }
 }

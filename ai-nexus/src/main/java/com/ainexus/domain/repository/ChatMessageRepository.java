@@ -26,6 +26,19 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageRecord, 
             nativeQuery = true)
     List<ChatMessageRecord> findBySession(@Param("sessionId") String sessionId);
 
+    /** 用户隔离版全量回放：鉴权开启时防止跨用户会话读取 */
+    @Query(value = "SELECT * FROM chat_message WHERE session_id = :sessionId AND user_id = :userId " +
+            "ORDER BY created_at ASC", nativeQuery = true)
+    List<ChatMessageRecord> findBySessionAndUser(@Param("sessionId") String sessionId,
+                                                 @Param("userId") Long userId);
+
+    /** 租户+用户二级隔离版全量回放：多租户开启时防止跨租户会话读取 */
+    @Query(value = "SELECT * FROM chat_message WHERE session_id = :sessionId AND user_id = :userId AND tenant_id = :tenantId " +
+            "ORDER BY created_at ASC", nativeQuery = true)
+    List<ChatMessageRecord> findBySessionAndTenantAndUser(@Param("sessionId") String sessionId,
+                                                          @Param("userId") Long userId,
+                                                          @Param("tenantId") Long tenantId);
+
     /** 租户+用户二级隔离版：多租户开启时防止跨租户会话读取 */
     @Query(value = "SELECT * FROM chat_message WHERE session_id = :sessionId AND user_id = :userId AND tenant_id = :tenantId " +
             "ORDER BY created_at DESC LIMIT :limit", nativeQuery = true)

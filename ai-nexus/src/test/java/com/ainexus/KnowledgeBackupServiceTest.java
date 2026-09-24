@@ -45,6 +45,9 @@ class KnowledgeBackupServiceTest {
     @Mock
     private VectorStore vectorStore;
 
+    @Mock
+    private com.ainexus.ai.rag.RetrievalCacheService retrievalCache;
+
     private KnowledgeBackupService service;
 
     private final KnowledgeBase kb = KnowledgeBase.builder()
@@ -52,7 +55,7 @@ class KnowledgeBackupServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new KnowledgeBackupService(kbRepository, docRepository, chunkRepository, vectorStore);
+        service = new KnowledgeBackupService(kbRepository, docRepository, chunkRepository, vectorStore, retrievalCache);
         when(kbRepository.findById(1L)).thenReturn(Optional.of(kb));
         when(kbRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(docRepository.findByKbIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(

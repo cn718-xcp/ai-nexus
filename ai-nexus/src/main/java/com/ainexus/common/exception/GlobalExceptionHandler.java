@@ -5,7 +5,10 @@ import com.ainexus.common.api.ErrorCode;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -60,6 +63,30 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.OK)
     public ApiResponse<Void> handleNotFound(NoResourceFoundException e) {
         return ApiResponse.fail(ErrorCode.NOT_FOUND);
+    }
+
+    /** 缺失必填请求参数（@RequestParam required=true 未命中）。 */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    @ResponseStatus(HttpStatus.OK)
+    public ApiResponse<Void> handleMissingParam(MissingServletRequestParameterException e) {
+        log.warn("[param-error] missing param: {}", e.getParameterName());
+        return ApiResponse.fail(ErrorCode.PARAM_ERROR.getCode(), "缺少请求参数: " + e.getParameterName());
+    }
+
+    /** 请求体不可读（JSON 畸形/类型不匹配）。 */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.OK)
+    public ApiResponse<Void> handleUnreadableBody(HttpMessageNotReadableException e) {
+        log.warn("[param-error] unreadable request body");
+        return ApiResponse.fail(ErrorCode.PARAM_ERROR.getCode(), "请求体格式不合法");
+    }
+
+    /** 请求方法不支持（路径存在但方法不匹配）。 */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.OK)
+    public ApiResponse<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
+        log.warn("[param-error] method not supported: {}", e.getMessage());
+        return ApiResponse.fail(ErrorCode.PARAM_ERROR.getCode(), "请求方法不支持");
     }
 
     /** 兜底：未预期异常，打全量堆栈。 */

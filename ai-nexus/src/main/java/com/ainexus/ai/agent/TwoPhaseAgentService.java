@@ -51,6 +51,7 @@ public class TwoPhaseAgentService {
     private final AiCallEventPublisher eventPublisher;
     private final AgentProperties properties;
     private final com.ainexus.ai.resilience.ModelCallGate gate;
+    private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
 
     public record AgentResult(String answer, String thinkingChain, int executedSteps, boolean degraded) {
     }
@@ -58,7 +59,8 @@ public class TwoPhaseAgentService {
     public AgentResult execute(String sessionId, String prompt, Long userId, Long tenantId) {
         long start = System.currentTimeMillis();
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
-        tenantQuotaCheck(tenantId);
+        // 租户配额三重管控：租户禁用拦截 + 租户/用户 QPS + 每日限额（与单阶段 AgentService 对齐；tenant 关闭态直通）
+        tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
         ChatModelHolder holder = new ChatModelHolder(routeContext.route(ModelScene.AGENT, tenantId));
 
         AgentExecutionController controller = new AgentExecutionController(properties.getMaxSteps());
@@ -69,9 +71,15 @@ public class TwoPhaseAgentService {
         Map<String, ToolCallback> byName = Arrays.stream(tools.toArray(new ToolCallback[0]))
                 .collect(Collectors.toMap(cb -> cb.getToolDefinition().name(), Function.identity()));
 
-        // 阶段一：规划
-        List<AgentPlanParser.Step> plan = gate.call(() -> AgentPlanParser.parse(ChatClient.create(holder.model)
-                .prompt().system(PLANNER_PROMPT).user(prompt).call().content()));
+        // 阶段一：规划（解析失败由 AgentPlanParser 内部兜底；模型调用异常时降级纯问答，与类注释承诺一致）
+        List<AgentPlanParser.Step> plan;
+        try {
+            plan = gate.call(() -> AgentPlanParser.parse(ChatClient.create(holder.model)
+                    .prompt().system(PLANNER_PROMPT).user(prompt).call().content()));
+        } catch (Exception e) {
+            log.warn("[agent] plan failed, fallback to plain qa, cause={}", e.getMessage());
+            plan = List.of();
+        }
 
         // 阶段二：执行（步数限制 + 循环检测）
         StringBuilder observations = new StringBuilder();
@@ -85,7 +93,12 @@ public class TwoPhaseAgentService {
                 break;
             }
             if ("answer".equals(step.action())) {
-                answer = synthesize(holder.model, prompt, observations.toString());
+                try {
+                    answer = synthesize(holder.model, prompt, observations.toString());
+                } catch (Exception e) {
+                    // 整合失败：留给降级链处理（plainQa / 兜底文案），保证历史与埋点照常落库
+                    log.warn("[agent] synthesize failed, cause={}", e.getMessage());
+                }
                 controller.record(step.thought(), "synthesize", answer);
                 break;
             }
@@ -102,7 +115,12 @@ public class TwoPhaseAgentService {
         // 降级链：未产出回答 / 工具全失败 → 纯问答
         if (answer == null) {
             if (properties.isFallbackToPlainQa()) {
-                answer = plainQa(holder.model, prompt);
+                try {
+                    answer = plainQa(holder.model, prompt);
+                } catch (Exception e) {
+                    log.warn("[agent] plain qa fallback failed, cause={}", e.getMessage());
+                    answer = "抱歉，模型暂时不可用，请稍后再试。";
+                }
                 degraded = true;
             } else {
                 answer = "任务未能完成：执行步数达到上限或发生循环。";
@@ -138,10 +156,6 @@ public class TwoPhaseAgentService {
                 .system("工具暂不可用，请基于已有知识用简体中文直接回答。")
                 .user(prompt)
                 .call().content());
-    }
-
-    private void tenantQuotaCheck(Long tenantId) {
-        // 复用租户配额管控（保留占位以对齐调用链路语义）
     }
 
     /** ChatModel 持有器（lambda 内可变引用） */

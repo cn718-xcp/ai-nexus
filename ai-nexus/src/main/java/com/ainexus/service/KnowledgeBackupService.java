@@ -38,6 +38,7 @@ public class KnowledgeBackupService {
     private final KnowledgeDocumentRepository docRepository;
     private final KnowledgeChunkRepository chunkRepository;
     private final VectorStore vectorStore;
+    private final com.ainexus.ai.rag.RetrievalCacheService retrievalCache;
 
     /** 导出载荷结构 */
     public record BackupPayload(KnowledgeBase kb, List<DocumentInfo> documents) {
@@ -49,15 +50,17 @@ public class KnowledgeBackupService {
     public record ChunkInfo(int idx, String content) {
     }
 
-    /** 导出：知识库元数据 + 全部片段原文（归属校验由调用方保证） */
+    /** 导出：知识库元数据 + 全部片段原文（归属校验由调用方保证）。片段一次加载按 docUuid 分组，避免逐文档查询（N+1） */
     @Transactional(readOnly = true)
     public String export(Long kbId) {
         KnowledgeBase kb = kbRepository.findById(kbId)
                 .orElseThrow(() -> new BizException(ErrorCode.KB_NOT_FOUND));
+        Map<String, List<KnowledgeChunk>> chunksByDoc = chunkRepository
+                .findByKbIdOrderByDocUuidAscChunkIdxAsc(kbId).stream()
+                .collect(java.util.stream.Collectors.groupingBy(KnowledgeChunk::getDocUuid));
         List<DocumentInfo> docs = new ArrayList<>();
         for (KnowledgeDocument doc : docRepository.findByKbIdOrderByCreatedAtDesc(kbId)) {
-            List<ChunkInfo> chunks = chunkRepository.findByKbIdOrderByDocUuidAscChunkIdxAsc(kbId).stream()
-                    .filter(c -> c.getDocUuid().equals(doc.getDocUuid()))
+            List<ChunkInfo> chunks = chunksByDoc.getOrDefault(doc.getDocUuid(), List.of()).stream()
                     .map(c -> new ChunkInfo(c.getChunkIdx(), c.getContent()))
                     .toList();
             docs.add(new DocumentInfo(doc.getFileName(), doc.getDocUuid(), chunks));
@@ -80,8 +83,13 @@ public class KnowledgeBackupService {
             throw new BizException(ErrorCode.PARAM_ERROR, "备份文件缺少必要字段");
         }
         KnowledgeBase source = payload.kb();
+        String restoredName = source.getName() + "-restored";
+        if (kbRepository.existsByName(restoredName)) {
+            // 撞唯一约束会让导入在向量化之后以 500 失败：入口快速失败给出明确业务提示
+            throw new BizException(ErrorCode.BIZ_ERROR, "还原目标知识库名已存在: " + restoredName);
+        }
         KnowledgeBase target = KnowledgeBase.builder()
-                .name(source.getName() + "-restored")
+                .name(restoredName)
                 .description("restored from backup: " + source.getName())
                 .collectionName("kb_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12))
                 .status(1)
@@ -118,6 +126,8 @@ public class KnowledgeBackupService {
                     .build());
         }
         log.info("[kb-backup] imported, source={}, target={}, docs={}", source.getName(), target.getName(), payload.documents().size());
+        // 导入后该知识库的检索缓存版本自增（开启缓存时避免旧版本 Key 残留命中）
+        retrievalCache.bumpVersion(target.getName());
         return target;
     }
 

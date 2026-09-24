@@ -30,8 +30,11 @@ public class ModelCallResilienceTemplate {
 
     private final com.ainexus.common.config.DynamicConfigService dynamicConfig;
 
-    /** scene -> 熔断器注册表 */
-    private final Map<String, CircuitBreaker> breakers = new ConcurrentHashMap<>();
+    /** scene -> 熔断器注册表（携带参数指纹：参数变更时重建熔断器使新配置即时生效） */
+    private final Map<String, BreakerEntry> breakers = new ConcurrentHashMap<>();
+
+    private record BreakerEntry(String paramsKey, CircuitBreaker breaker) {
+    }
 
     public ModelCallResilienceTemplate(
             @Value("${ainexus.resilience.circuit-enabled:false}") boolean circuitEnabled,
@@ -60,11 +63,18 @@ public class ModelCallResilienceTemplate {
         boolean dynamicCircuitEnabled = dynamicConfig.getBool(
                 "resilience.circuit-enabled", circuitEnabled, null);
         if (dynamicCircuitEnabled) {
-            breaker = breakers.computeIfAbsent(scene,
-                    s -> new CircuitBreaker(s,
-                            (int) dynamicConfig.getNumber("resilience.circuit-window", circuitWindow, null),
-                            dynamicConfig.getNumber("resilience.circuit-failure-rate", circuitFailureRate, null),
-                            Duration.ofSeconds((long) dynamicConfig.getNumber("resilience.circuit-open-seconds", circuitOpenSeconds, null))));
+            int window = (int) dynamicConfig.getNumber("resilience.circuit-window", circuitWindow, null);
+            double failureRate = dynamicConfig.getNumber("resilience.circuit-failure-rate", circuitFailureRate, null);
+            long openSeconds = (long) dynamicConfig.getNumber("resilience.circuit-open-seconds", circuitOpenSeconds, null);
+            String paramsKey = window + ":" + failureRate + ":" + openSeconds;
+            BreakerEntry entry = breakers.computeIfAbsent(scene,
+                    s -> new BreakerEntry(paramsKey, new CircuitBreaker(s, window, failureRate, Duration.ofSeconds(openSeconds))));
+            if (!entry.paramsKey().equals(paramsKey)) {
+                // 参数变更：重建熔断器（窗口统计随之重置，属配置变更的可接受代价）
+                entry = new BreakerEntry(paramsKey, new CircuitBreaker(scene, window, failureRate, Duration.ofSeconds(openSeconds)));
+                breakers.put(scene, entry);
+            }
+            breaker = entry.breaker();
             if (!breaker.tryAcquire()) {
                 log.warn("[resilience] {} circuit OPEN, skip primary call", scene);
                 return new ResilienceResult<>(fallback.get(), true, 0);

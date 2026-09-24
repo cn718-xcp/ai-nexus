@@ -65,14 +65,15 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
         }
         List<Document> candidates = vectorStore.similaritySearch(builder.build());
         List<Document> docs = candidates == null ? List.of() : candidates;
-        retrievalCache.put(context.getKnowledgeBaseName(), context.getRewrittenQuery(), candidateK, docs);
 
         // 混合模式：RRF 融合语义+字面两路排序，可叠加位置权重（多维打分融合）
+        // 融合必须在写缓存之前：保证缓存内容 = 最终候选集，命中与未命中返回同一排序
         if ("hybrid".equalsIgnoreCase(properties.getMode()) && !docs.isEmpty()) {
             docs = hybridRetriever.fuse(docs, context.getRewrittenQuery(),
                     properties.getRrfK(), properties.getPositionWeight());
             log.info("[rag] hybrid fusion applied, candidates={}", docs.size());
         }
+        retrievalCache.put(context.getKnowledgeBaseName(), context.getRewrittenQuery(), candidateK, docs);
         return docs;
     }
 

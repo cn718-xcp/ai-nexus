@@ -1,6 +1,7 @@
 package com.ainexus.config;
 
 import com.ainexus.common.auth.JwtService;
+import com.ainexus.common.api.ErrorCode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,6 +42,8 @@ public class SecurityConfig {
     /**
      * 鉴权开启态：JWT 无状态鉴权（Resource Server），业务接口一律要求有效令牌。
      * 解码器复用 JwtService 同源密钥，保证签发与校验配置唯一。
+     * 401/403 响应体统一为 ApiResponse JSON（HTTP 状态码保持 401/403 不变，
+     * 前端刷新令牌逻辑依赖状态码判定）。
      */
     @Bean
     @ConditionalOnProperty(prefix = "ainexus.auth", name = "enabled", havingValue = "true")
@@ -51,8 +54,23 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_URIS).permitAll()
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.decoder(jwtService.decoder())))
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.decoder(jwtService.decoder()))
+                        .authenticationEntryPoint((request, response, ex) ->
+                                writeAuthError(response, 401, ErrorCode.UNAUTHORIZED.getCode(), ErrorCode.UNAUTHORIZED.getMessage()))
+                        .accessDeniedHandler((request, response, ex) ->
+                                writeAuthError(response, 403, ErrorCode.BIZ_ERROR.getCode(), "无权限访问该资源")))
                 .build();
+    }
+
+    /** 鉴权失败统一 JSON 响应：与 ApiResponse 字段结构一致，避免前端收到空 body 无法解析 */
+    private static void writeAuthError(jakarta.servlet.http.HttpServletResponse response,
+                                       int status, String code, String message) throws java.io.IOException {
+        response.setStatus(status);
+        response.setContentType(org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
+        response.getWriter().write("{\"code\":\"" + code + "\",\"message\":\""
+                + message + "\",\"data\":null,\"timestamp\":" + System.currentTimeMillis() + "}");
     }
 
     /** BCrypt 密码编码器（注册/登录共用） */

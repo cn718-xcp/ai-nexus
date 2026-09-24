@@ -71,6 +71,7 @@ public class TenantQuotaService {
 
     /**
      * 模型调用前校验（三重管控）：租户状态 + 租户 QPS + 每日调用限额。
+     * 租户档案仅查询一次，传递给状态/QPS/每日限额三段校验复用（此前同一 tenantId 重复查库 3 次）。
      * QPS：租户维度复用 concurrent_quota 作为每秒上限；用户维度按 user-qps 配置。
      * 每日限额：Redis 原子自增并判定，计数 Key 按天滚动，TTL 25h 自动清理。
      */
@@ -78,11 +79,13 @@ public class TenantQuotaService {
         if (!tenantEnabled || tenantId == null) {
             return;
         }
-        ensureTenantActive(tenantId);
-        ensureTenantQps(tenantId);
-        ensureUserQps(userId);
         SysTenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BizException(ErrorCode.TENANT_NOT_FOUND));
+        if (tenant.getStatus() != 1) {
+            throw new BizException(ErrorCode.TENANT_DISABLED);
+        }
+        ensureTenantQps(tenant);
+        ensureUserQps(userId);
         String key = "ainexus:quota:daily:" + tenantId + ":" + LocalDate.now();
         RAtomicLong counter = redissonClient.getAtomicLong(key);
         long used = counter.incrementAndGet();
@@ -97,10 +100,8 @@ public class TenantQuotaService {
     }
 
     /** 租户维度 QPS：令牌桶按秒补充，超限快速拒绝 */
-    private void ensureTenantQps(Long tenantId) {
-        SysTenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new BizException(ErrorCode.TENANT_NOT_FOUND));
-        RRateLimiter limiter = redissonClient.getRateLimiter("ainexus:quota:qps:t:" + tenantId);
+    private void ensureTenantQps(SysTenant tenant) {
+        RRateLimiter limiter = redissonClient.getRateLimiter("ainexus:quota:qps:t:" + tenant.getId());
         // trySetRate 幂等：首次设置后不重置已发放的令牌桶
         limiter.trySetRate(RateType.OVERALL, tenant.getConcurrentQuota(), 1, RateIntervalUnit.SECONDS);
         if (!limiter.tryAcquire()) {

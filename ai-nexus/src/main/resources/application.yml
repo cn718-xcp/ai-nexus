@@ -13,7 +13,7 @@ spring:
       max-request-size: 20MB
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    hikari:                    # 连接池（生产级参数）
+    hikari: # 连接池（生产级参数）
       minimum-idle: 5
       maximum-pool-size: 20
       connection-timeout: 30000
@@ -51,8 +51,8 @@ spring:
           password: milvus
         databaseName: default
         collectionName: ai_nexus_kb          # 统一 Collection，按元数据过滤隔离知识库
-                                             # 注意：本 Collection 由应用按 embedding-dimension 自动创建；
-                                             # 若该名称已存在且维度不符，请手动 drop 或更换名称
+        # 注意：本 Collection 由应用按 embedding-dimension 自动创建；
+        # 若该名称已存在且维度不符，请手动 drop 或更换名称
         embedding-dimension: 768             # nomic-embed-text 输出维度
         metricType: COSINE
         # 索引类型切换（重建 Collection 时生效）：HNSW-高召回低延迟 | IVF_FLAT-大数据量高吞吐
@@ -60,40 +60,43 @@ spring:
         # indexParameters: '{"M":24,"efConstruction":200}'   # HNSW 参数
         # indexParameters: '{"nlist":128}'                    # IVF_FLAT 参数
         initialize-schema: true              # 首次启动自动建 Collection
+  web:
+    error:
+      include-stacktrace: never
 
 # ---------------------------------------------------------------------
 # AI Nexus 业务配置
 # ---------------------------------------------------------------------
 ainexus:
-  model-route:                     # 多模型路由：场景 -> 模型名（策略模式配置源）
+  model-route: # 多模型路由：场景 -> 模型名（策略模式配置源）
     default-model: qwen2.5:7b
     routes:
       CHAT: qwen2.5:7b
       RAG: qwen2.5:7b
       AGENT: qwen2.5:7b
       MULTIMODAL: llava:7b         # 多模态模型，需: ollama pull llava:7b
-  auth:                            # 认证开关：dev 默认关闭保持无鉴权调试体验；prod 建议开启
+  auth: # 认证开关：dev 默认关闭保持无鉴权调试体验；prod 建议开启
     enabled: false
-  tenant:                          # 多租户开关：dev 默认关闭（单租户模式，行为与关闭前完全一致）
+  tenant: # 多租户开关：dev 默认关闭（单租户模式，行为与关闭前完全一致）
     enabled: false
     user-qps: 5                    # 用户级 QPS 限流阈值（0 表示不启用用户维度限流）
-  agent:                           # Agent 可控性：工具容错/步数限制/思维链/两阶段协作
+  agent: # Agent 可控性：工具容错/步数限制/思维链/两阶段协作
     tool-max-retries: 2            # 工具调用最大重试（指数退避）
     tool-timeout-ms: 8000          # 工具单次执行超时
-    tool-whitelist: []             # 工具白名单（空=全部放行）
+    tool-whitelist: [ ]             # 工具白名单（空=全部放行）
     max-steps: 8                   # 两阶段执行最大步数（循环检测自动终止）
     return-thinking: false         # 是否返回思维链（Thought/Action/Observation）
     fallback-to-plain-qa: true     # 工具不可用自动降级纯问答
-  security:                        # AI 内容安全（dev 默认关闭直通）
+  security: # AI 内容安全（dev 默认关闭直通）
     enabled: false
-    injection-patterns: []         # 自定义注入检测正则（叠加内置规则库）
-    sensitive-words: []            # 敏感词库（输入拦截 + 输出掩码）
-  eval:                            # AI 效果评估闭环
+    injection-patterns: [ ]         # 自定义注入检测正则（叠加内置规则库）
+    sensitive-words: [ ]           # 敏感词库（输入拦截 + 输出掩码）
+  eval: # AI 效果评估闭环
     answer-enabled: false          # RAG 回答自动评审（LLM 三维评分，低分入 Bad Case；增加一次模型调用）
     badcase-threshold: 3           # Bad Case 判定阈值（任一维度 < 阈值即入列）
-  dynamic:                         # 动态配置中心：DB 配置优先级高于本地 yml（enabled=false 仅读 yml）
+  dynamic: # 动态配置中心：DB 配置优先级高于本地 yml（enabled=false 仅读 yml）
     enabled: false
-  models:                          # 多模型统一适配层（模型键 provider:model）
+  models: # 多模型统一适配层（模型键 provider:model）
     primary: ollama:qwen2.5:7b     # 主模型键
     fallback: ""                   # 备用模型键（逗号分隔，连接类失败自动降级）
     gray-key: ""                   # 灰度模型键（模型版本共存）
@@ -101,28 +104,28 @@ ainexus:
     openai:
       base-url: https://api.openai.com   # 任意 OpenAI 协议端点（vLLM/Ollama 兼容模式等）
       api-key: ${OPENAI_API_KEY:}        # 生产环境务必环境变量注入
-  model-pool:                      # 模型节点池：多 Ollama 实例集群化（enabled=false 单节点直通）
+  model-pool: # 模型节点池：多 Ollama 实例集群化（enabled=false 单节点直通）
     enabled: false
     strategy: round_robin          # 负载均衡：round_robin-轮询 | least_connections-最少连接
     health-interval-seconds: 15    # 节点健康探测间隔（故障摘除/恢复回流）
     health-timeout-ms: 2000
-    nodes: []                      # 节点列表，如 [{name: node1, base-url: http://192.168.1.10:11434}]
-  jwt:                             # JWT 配置（auth.enabled=true 时生效）
+    nodes: [ ]                      # 节点列表，如 [{name: node1, base-url: http://192.168.1.10:11434}]
+  jwt: # JWT 配置（auth.enabled=true 时生效）
     secret: ${JWT_SECRET:change-me-in-production-ai-nexus-jwt-secret-key-2026}
     access-token-minutes: 30       # 访问令牌有效期
     refresh-token-days: 7          # 刷新令牌有效期
-  rag:                             # RAG 检索进阶配置（均为可选，关闭时行为与纯向量 topK 一致）
+  rag: # RAG 检索进阶配置（均为可选，关闭时行为与纯向量 topK 一致）
     mode: vector                   # 检索模式：vector-纯向量 | hybrid-向量+关键词 RRF 融合
     rerank-enabled: false          # 二阶段 Embedding 余弦精排（提升头部召回准确率，增加一次批量 Embedding 调用）
     over-fetch: 3                  # 过召回倍数：候选池 = topK * overFetch
     rrf-k: 60                      # RRF 融合常数
     cache-enabled: false           # 向量检索结果缓存（TTL 10min + 文档变更版本号主动失效）
-  resilience:                      # 模型调用熔断（按场景维度：CHAT/RAG/AGENT...）
+  resilience: # 模型调用熔断（按场景维度：CHAT/RAG/AGENT...）
     circuit-enabled: false         # dev 默认关闭保持原行为；prod 建议开启
     circuit-window: 10             # 滚动窗口样本数
     circuit-failure-rate: 0.6      # 熔断失败率阈值（60%）
     circuit-open-seconds: 30       # 熔断冷却时长（此后半开试探）
-  concurrency:                     # 模型调用并发闸门（Redisson 信号量，跨实例生效）
+  concurrency: # 模型调用并发闸门（Redisson 信号量，跨实例生效）
     model-max: 0                   # 最大并发数；<=0 表示不启用排队（dev 默认关闭）
     queue-timeout-seconds: 15      # 排队等待超时，超时快速降级
 
@@ -167,5 +170,3 @@ server:
   tomcat:
     threads:
       max: 200
-  error:
-    include-stacktrace: never   # 异常堆栈不外泄（安全兜底）

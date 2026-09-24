@@ -52,7 +52,15 @@ public class RetrievalCacheService {
             return null;
         }
         log.info("[rag-cache] hit, kb={}, topK={}", kbName, topK);
-        List<CachedDoc> docs = JSONUtil.toList(json, CachedDoc.class);
+        List<CachedDoc> docs;
+        try {
+            docs = JSONUtil.toList(json, CachedDoc.class);
+        } catch (Exception e) {
+            // 缓存数据损坏/结构不兼容：删除脏 Key 回源重建，绝不把缓存故障放大为检索主链路故障
+            log.warn("[rag-cache] corrupt cache entry evicted, kb={}, err={}", kbName, e.getMessage());
+            bucket.delete();
+            return null;
+        }
         // score 转存 metadata（Document 无带 score 的构造器），保证下游引用定位仍可读取
         return docs.stream().map(d -> {
             Map<String, Object> metadata = new java.util.HashMap<>(d.metadata() == null ? Map.of() : d.metadata());

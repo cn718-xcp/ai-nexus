@@ -35,6 +35,7 @@ public class ParentChildExpander {
             return hits;
         }
         List<Document> expanded = new java.util.ArrayList<>(hits.size());
+        int expandedCount = 0;
         for (Document doc : hits) {
             Object isChild = doc.getMetadata().get("is_child");
             if (Boolean.TRUE.equals(isChild)) {
@@ -47,18 +48,14 @@ public class ParentChildExpander {
                     meta.put("parent_expanded", true);
                     // score 保留子块召回分（引用溯源仍指向子块位置）
                     expanded.add(new Document(doc.getId(), parentText, meta));
+                    expandedCount++;
                     continue;
                 }
                 log.warn("[parent-child] parent not found, doc={}, idx={}, fallback to child text", docId, parentIdx);
             }
             expanded.add(doc);
         }
-        log.info("[parent-child] expanded {}/{} hits to parent context",
-                expanded.size() - hits.size() + countUnchanged(expanded, hits), hits.size());
+        log.info("[parent-child] expanded {}/{} hits to parent context", expandedCount, hits.size());
         return expanded;
-    }
-
-    private long countUnchanged(List<Document> expanded, List<Document> hits) {
-        return hits.size() - (expanded.size() - hits.size());
     }
 }

@@ -44,9 +44,19 @@ public class ChatHistoryService {
         return recent;
     }
 
-    /** 全量会话回放：原始 Prompt/回答/模型/时间（审计追溯用） */
+    /**
+     * 全量会话回放：原始 Prompt/回答/模型/时间（审计追溯用）。
+     * 鉴权开启时强制按用户（及租户）过滤，防止任意用户凭 sessionId 越权读取他人会话全文；
+     * userId 为 null（鉴权关闭态）行为与关闭前一致。
+     */
     @Transactional(readOnly = true)
-    public List<ChatMessageRecord> replay(String sessionId) {
+    public List<ChatMessageRecord> replay(String sessionId, Long userId, Long tenantId) {
+        if (tenantId != null && userId != null) {
+            return chatMessageRepository.findBySessionAndTenantAndUser(sessionId, userId, tenantId);
+        }
+        if (userId != null) {
+            return chatMessageRepository.findBySessionAndUser(sessionId, userId);
+        }
         return chatMessageRepository.findBySession(sessionId);
     }
 

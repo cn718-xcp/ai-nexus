@@ -7,7 +7,6 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -25,16 +24,24 @@ public class ResilientToolCallback implements ToolCallback {
 
     /** 工具执行兜底返回 */
     private static final String TIMEOUT_FALLBACK = "工具执行超时，本次结果不可用。请跳过该信息或调整策略继续任务。";
+    private static final String BUSY_FALLBACK = "工具执行繁忙，本次结果不可用。请跳过该信息或调整策略继续任务。";
 
     private final ToolCallback delegate;
     private final int maxRetries;
     private final long timeoutMs;
-    /** 单例守护线程池：工具调用超时中断（daemon 不阻塞退出） */
-    private static final ExecutorService TIMEOUT_POOL = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "tool-timeout");
-        t.setDaemon(true);
-        return t;
-    });
+    /**
+     * 工具超时守护线程池（daemon 不阻塞退出）。
+     * 有界池（核心 4 / 上限 16 / 队列 256）：持续超时的工具会被 cancel(true) 挂起占线，
+     * 无界池会无限堆积线程；池满时快速失败返回兜底文案（见 callWithTimeout）。
+     */
+    private static final ExecutorService TIMEOUT_POOL = new java.util.concurrent.ThreadPoolExecutor(
+            4, 16, 60L, TimeUnit.SECONDS,
+            new java.util.concurrent.LinkedBlockingQueue<>(256),
+            r -> {
+                Thread t = new Thread(r, "tool-timeout");
+                t.setDaemon(true);
+                return t;
+            });
 
     private ResilientToolCallback(ToolCallback delegate, int maxRetries, long timeoutMs) {
         this.delegate = delegate;
@@ -93,6 +100,10 @@ public class ResilientToolCallback implements ToolCallback {
                 }
                 if (attempt < maxRetries) {
                     sleep(200L << attempt);
+                    if (Thread.currentThread().isInterrupted()) {
+                        // 中断（如上游取消/关闭）：终止重试，快速返回失败文案
+                        break;
+                    }
                 }
             }
         }
@@ -101,8 +112,14 @@ public class ResilientToolCallback implements ToolCallback {
     }
 
     private String callWithTimeout(String toolInput, org.springframework.ai.chat.model.ToolContext context) throws Exception {
-        Future<String> future = TIMEOUT_POOL.submit(() -> context == null
-                ? delegate.call(toolInput) : delegate.call(toolInput, context));
+        Future<String> future;
+        try {
+            future = TIMEOUT_POOL.submit(() -> context == null
+                    ? delegate.call(toolInput) : delegate.call(toolInput, context));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // 守护池饱和：快速返回兜底，不阻塞模型工具循环
+            return BUSY_FALLBACK;
+        }
         try {
             return future.get(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {

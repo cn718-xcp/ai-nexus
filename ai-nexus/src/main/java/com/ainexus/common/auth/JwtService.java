@@ -116,8 +116,11 @@ public class JwtService {
     }
 
     private SecretKey secretKey() {
-        // HS256 要求密钥长度 >= 256bit；不足时左填充说明密钥配置过弱
         byte[] bytes = properties.getSecret().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        // HS256 要求密钥 >= 256bit：弱密钥若不拦截会到首次解码才抛 WeakKeyException（全站 401 难排查），启动即 fail-fast
+        if (bytes.length < 32) {
+            throw new IllegalStateException("JWT 密钥长度不足 32 字节（256bit），请通过 ainexus.jwt.secret/JWT_SECRET 配置强随机密钥");
+        }
         return new javax.crypto.spec.SecretKeySpec(bytes, "HmacSHA256");
     }
 }
