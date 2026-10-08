@@ -1,0 +1,28 @@
+# =====================================================================
+# 换行符策略：仓库内文本统一以 LF 存储，避免跨平台协作时的整文件 diff
+# 工作区检出形态由 core.autocrlf 决定；下列文件强制 LF
+# =====================================================================
+
+* text=auto
+
+# 强制 LF 检出——CRLF 会让 shebang 失效、Dockerfile 续行（\）解析出错
+*.sh                 text eol=lf
+Dockerfile           text eol=lf
+*.dockerfile         text eol=lf
+docker-compose*.yml  text eol=lf
+
+# Windows 批处理脚本必须 CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# 二进制资源不做任何转换
+*.jar   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
