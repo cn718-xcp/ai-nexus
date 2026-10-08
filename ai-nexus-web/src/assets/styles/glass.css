@@ -1,0 +1,87 @@
+/* 玻璃拟态材质体系：层级靠 模糊度 + 透明度 + 阴影浓度 区分（弹窗 > 侧边栏 > 卡片 > 背景） */
+
+.glass {
+  position: relative;
+  background: var(--an-surface);
+  backdrop-filter: blur(var(--an-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--an-blur)) saturate(150%);
+  border: 1px solid var(--an-border);
+  border-radius: var(--an-radius);
+  box-shadow: var(--an-shadow);
+  transition:
+    background var(--an-dur-long) var(--an-ease),
+    box-shadow var(--an-dur-long) var(--an-ease),
+    transform var(--an-dur-long) var(--an-ease),
+    border-color var(--an-dur-long) var(--an-ease);
+}
+
+/* 顶部 1px 微光高光：模拟玻璃镶嵌的光线折射 */
+.glass::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--an-highlight), transparent);
+  pointer-events: none;
+  border-radius: 1px;
+}
+
+/* 左上角微光点缀 */
+.glass::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 130px;
+  height: 90px;
+  background: radial-gradient(120px 80px at 0% 0%, rgba(255, 255, 255, 0.14), transparent 70%);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* 更强材质：弹窗 / 下拉浮层 */
+.glass-strong {
+  background: var(--an-surface-strong);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: var(--an-shadow-dialog);
+}
+
+/* 卡片 hover：上浮 4px + 阴影加深 + 边缘微光增强 */
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--an-shadow-hover);
+  border-color: var(--an-border-strong);
+}
+
+/* 纯展示玻璃（无 hover 位移） */
+.glass-static::after {
+  display: none;
+}
+
+/* 渐变文字 */
+.an-gradient-text {
+  background: var(--an-primary-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 渐变主按钮（覆盖 EP） */
+.an-btn-primary {
+  background: var(--an-primary-gradient) !important;
+  border: none !important;
+  position: relative;
+  overflow: hidden;
+}
+.an-btn-primary::after {
+  /* 边缘微光 */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+}

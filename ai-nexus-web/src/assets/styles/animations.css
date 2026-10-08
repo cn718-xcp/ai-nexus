@@ -1,0 +1,310 @@
+/**
+ * 全链路动效体系
+ * 统一缓动 cubic-bezier(0.4, 0, 0.2, 1)，基础 200ms，长过渡 350ms
+ * 动效分级：html[data-anim="high"|"medium"|"low"|"off"]
+ *   high   —— 全部动效（含装饰性循环动效：呼吸光环 / 微光扫过 / 光斑漂浮）
+ *   medium —— 标准动效（页面切换 / 入场 / hover / 弹窗），默认档
+ *   low    —— 仅保留透明度淡入淡出
+ *   off    —— 关闭所有动效
+ */
+
+:root {
+  --anim-mult: 1;
+}
+html[data-anim='off'] {
+  --anim-mult: 0;
+}
+
+/* ===== 页面切换：向上平移 8px + 淡入 ===== */
+.page-enter-active,
+.page-leave-active {
+  transition:
+    opacity var(--an-dur-long) var(--an-ease),
+    transform var(--an-dur-long) var(--an-ease);
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ===== 列表瀑布式入场：每项延迟 50ms（配合内联 animation-delay）===== */
+@keyframes an-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.stagger-item {
+  animation: an-fade-up calc(var(--an-dur-long) * var(--anim-mult)) var(--an-ease) both;
+}
+
+@keyframes an-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in-item {
+  animation: an-fade-in calc(var(--an-dur-long) * var(--anim-mult)) var(--an-ease) both;
+}
+
+/* ===== 按钮按下回弹 ===== */
+.an-press {
+  transition: transform calc(var(--an-dur) * var(--anim-mult)) var(--an-ease);
+}
+.an-press:active {
+  transform: scale(0.97);
+}
+
+/* ===== 主按钮「微光扫过」加载态 ===== */
+@keyframes an-shimmer {
+  from {
+    transform: translateX(-130%) skewX(-18deg);
+  }
+  to {
+    transform: translateX(230%) skewX(-18deg);
+  }
+}
+.an-loading-sweep {
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
+}
+.an-loading-sweep::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: an-shimmer 1.1s var(--an-ease) infinite;
+}
+
+/* ===== 输入聚焦光晕（EP 覆盖里也有）===== */
+.an-focus-glow:focus-within {
+  box-shadow: var(--an-focus-ring);
+}
+
+/* ===== AI 思考中：三点波浪起伏 ===== */
+@keyframes an-wave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+.an-dots {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 18px;
+}
+.an-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--an-primary);
+  animation: an-wave calc(1.2s * var(--anim-mult)) var(--an-ease) infinite;
+}
+.an-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.an-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* ===== 环形微光旋转（替代传统转圈）===== */
+@keyframes an-ring {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.an-ring {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 10%, var(--an-primary) 85%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 0);
+  animation: an-ring calc(0.9s * var(--anim-mult)) linear infinite;
+}
+.an-ring.lg {
+  width: 34px;
+  height: 34px;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4.5px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4.5px), #000 0);
+}
+
+/* ===== SSE 流式输出：光标呼吸闪烁 ===== */
+@keyframes an-cursor {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.12;
+  }
+}
+.an-cursor {
+  display: inline-block;
+  width: 3px;
+  height: 1.05em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  border-radius: 2px;
+  background: var(--an-primary-gradient);
+  animation: an-cursor calc(0.9s * var(--anim-mult)) var(--an-ease) infinite;
+}
+
+/* ===== 思维链节点：呼吸光环 ===== */
+@keyframes an-breath {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--an-primary-rgb), 0.35);
+  }
+  55% {
+    box-shadow: 0 0 0 9px rgba(var(--an-primary-rgb), 0);
+  }
+}
+.an-breathing {
+  animation: an-breath calc(1.6s * var(--anim-mult)) var(--an-ease) infinite;
+}
+
+/* ===== 工具调用完成打勾 ===== */
+@keyframes an-check {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.an-check path {
+  stroke-dasharray: 24;
+  animation: an-check calc(0.4s * var(--anim-mult)) var(--an-ease) both;
+}
+
+/* ===== 消息气泡滑入 + 轻微弹性回弹 ===== */
+@keyframes an-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  60% {
+    transform: translateY(-2px) scale(1.002);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.bubble-in {
+  animation: an-bubble-in calc(var(--an-dur-long) * var(--anim-mult)) var(--an-ease-spring) both;
+}
+
+/* ===== 弹窗：缩放 + 淡入（配合 EP dialog）===== */
+@keyframes an-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ===== 引用展开：箭头旋转 ===== */
+.an-collapse-arrow {
+  transition: transform calc(var(--an-dur) * var(--anim-mult)) var(--an-ease);
+}
+.is-expanded .an-collapse-arrow {
+  transform: rotate(90deg);
+}
+
+/* ===== 图标 hover 微交互 ===== */
+.an-icon-hover {
+  transition:
+    transform calc(var(--an-dur) * var(--anim-mult)) var(--an-ease),
+    color var(--an-dur) var(--an-ease);
+}
+.an-icon-hover:hover {
+  transform: scale(1.1) rotate(5deg);
+  color: var(--an-primary);
+}
+
+/* ===== 开关滑块惯性回弹（EP 覆盖里实现，占位类）===== */
+
+/* ===== 数字平滑滚动由 JS useCountUp 完成 ===== */
+
+/* ===== 装饰性循环动效：仅 high 档启用 ===== */
+@keyframes an-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+.anim-decor {
+  display: none;
+}
+html[data-anim='high'] .anim-decor {
+  display: block;
+  animation: an-float 5s var(--an-ease) infinite;
+}
+
+/* ===== low / off 档裁剪 ===== */
+html[data-anim='low'] *,
+html[data-anim='off'] * {
+  animation-duration: 0.001s !important;
+  animation-delay: 0s !important;
+}
+html[data-anim='low'] *,
+html[data-anim='off'] * {
+  transition-property: opacity !important;
+  transition-duration: calc(var(--an-dur) * 0.5) !important;
+}
+html[data-anim='off'] *,
+html[data-anim='off'] *::before,
+html[data-anim='off'] *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* low 档：位移类入场退化为纯淡入 */
+html[data-anim='low'] .stagger-item {
+  animation-name: an-fade-in;
+}
+html[data-anim='low'] .hover-lift:hover {
+  transform: none;
+}
+html[data-anim='low'] .an-press:active {
+  transform: none;
+}
+
+/* ===== 系统级减少动效偏好尊重 ===== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    transition-duration: 0.001s !important;
+  }
+}

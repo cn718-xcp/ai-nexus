@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+
+# 日志（含 vite 开发服务器日志 .dev-server.log）
+*.log
+logs/
+
+# 构建缓存
+*.tsbuildinfo
+node_modules/.vite
+
+.idea
+.vscode/*
+!.vscode/extensions.json
