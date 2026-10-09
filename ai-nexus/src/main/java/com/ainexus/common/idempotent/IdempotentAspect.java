@@ -42,7 +42,13 @@ public class IdempotentAspect {
             log.warn("[idempotent] duplicate request, token={}", token);
             throw new BizException(ErrorCode.DUPLICATE_REQUEST);
         }
-        return pjp.proceed();
+        try {
+            return pjp.proceed();
+        } catch (Throwable t) {
+            // 业务失败即释放令牌：模型超时/DB 抖动属瞬时故障，不应把客户端重试挡在幂等窗口之外
+            redissonClient.getBucket(token).delete();
+            throw t;
+        }
     }
 
     /** 解析幂等维度：优先 SpEL 业务 Key，否则回退到请求参数摘要。 */
@@ -50,7 +56,9 @@ public class IdempotentAspect {
         Method method = ((MethodSignature) pjp.getSignature()).getMethod();
         String suffix;
         if (!idempotent.key().isEmpty()) {
-            suffix = spelKeyResolver.resolve(idempotent.key(), method, pjp.getArgs());
+            // 维度值可能来自用户文本（消息体/知识库名/上传文件名），统一摘要化：
+            // 避免分隔符与任意长度内容构造出与其他维度碰撞或逃逸命名空间的 Key
+            suffix = DigestUtil.md5Hex(spelKeyResolver.resolve(idempotent.key(), method, pjp.getArgs()));
         } else {
             // 维度优先级：登录用户 > 请求参数摘要（鉴权开启后幂等按用户维度生效）
             Long userId = currentUserResolver.currentUserId();

@@ -47,9 +47,12 @@ public class AgentService {
     private final com.ainexus.ai.resilience.ModelCallResilienceTemplate resilience;
     private final com.ainexus.ai.resilience.ModelCallGate gate;
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
+    private final com.ainexus.ai.security.ContentSafetyGuard contentSafetyGuard;
 
     public String invoke(String sessionId, String prompt, Long userId, Long tenantId) {
         long start = System.currentTimeMillis();
+        // 内容安全：与 ChatService 同一入口守卫（注入检测 + 敏感词），避免 Agent 链路绕过
+        contentSafetyGuard.checkInput(prompt);
         // 会话 ID 缺省时服务端生成（历史与埋点均绑定该会话；多轮记忆需客户端回传）
         String sid = sessionId == null || sessionId.isBlank() ? java.util.UUID.randomUUID().toString() : sessionId;
         // 每次请求构建会话级 ChatClient：注册工具集（工厂模式）
@@ -76,7 +79,7 @@ public class AgentService {
                         .content()),
                 "static-reply",
                 () -> "抱歉，模型暂时不可用，请稍后再试。");
-        String answer = result.result();
+        String answer = contentSafetyGuard.maskOutput(result.result());
 
         // Agent 轮次同样写入历史，实现跨轮上下文延续
         chatHistoryService.saveUser(sid, prompt, "agent", userId, tenantId);

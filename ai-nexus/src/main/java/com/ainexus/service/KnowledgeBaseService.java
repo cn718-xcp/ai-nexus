@@ -88,8 +88,9 @@ public class KnowledgeBaseService {
 
     /**
      * 归属校验：鉴权开启时校验知识库属于当前用户，防止越权读写（统一返回 NOT_FOUND 防探测）。
+     * 对外的复用入口（如备份导出），避免各调用方自行实现而漏校验。
      */
-    private KnowledgeBase requireOwnedKb(Long kbId, Long userId, Long tenantId) {
+    public KnowledgeBase requireOwnedKb(Long kbId, Long userId, Long tenantId) {
         KnowledgeBase kb = kbRepository.findById(kbId)
                 .orElseThrow(() -> new BizException(ErrorCode.KB_NOT_FOUND));
         // 二级隔离：租户维度不匹配或用户维度不匹配一律 404 防探测
@@ -127,7 +128,9 @@ public class KnowledgeBaseService {
             Thread.currentThread().interrupt();
             throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");
         } finally {
-            if (locked) {
+            // 租约（120s）到期后 Redisson 会自动释放锁，此时再 unlock 会抛 IllegalMonitorStateException，
+            // 把一次成功/已提交的操作变成 500 并掩盖真实结果；仅在确认仍持有时释放
+            if (locked && lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
         }
@@ -210,7 +213,8 @@ public class KnowledgeBaseService {
             Thread.currentThread().interrupt();
             throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");
         } finally {
-            if (locked) {
+            // 同 uploadDocument：租约到期后锁已被自动释放，避免 unlock 抛 IllegalMonitorStateException
+            if (locked && lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
         }

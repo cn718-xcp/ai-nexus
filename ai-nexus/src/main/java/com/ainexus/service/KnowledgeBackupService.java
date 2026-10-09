@@ -39,6 +39,7 @@ public class KnowledgeBackupService {
     private final KnowledgeChunkRepository chunkRepository;
     private final VectorStore vectorStore;
     private final com.ainexus.ai.rag.RetrievalCacheService retrievalCache;
+    private final KnowledgeBaseService knowledgeBaseService;
 
     /** 导出载荷结构 */
     public record BackupPayload(KnowledgeBase kb, List<DocumentInfo> documents) {
@@ -50,11 +51,14 @@ public class KnowledgeBackupService {
     public record ChunkInfo(int idx, String content) {
     }
 
-    /** 导出：知识库元数据 + 全部片段原文（归属校验由调用方保证）。片段一次加载按 docUuid 分组，避免逐文档查询（N+1） */
+    /**
+     * 导出：知识库元数据 + 全部片段原文。
+     * 导出的是知识库全量原文，必须做归属校验（越权导出等价于跨用户/跨租户数据泄露）。
+     * 片段一次加载按 docUuid 分组，避免逐文档查询（N+1）
+     */
     @Transactional(readOnly = true)
-    public String export(Long kbId) {
-        KnowledgeBase kb = kbRepository.findById(kbId)
-                .orElseThrow(() -> new BizException(ErrorCode.KB_NOT_FOUND));
+    public String export(Long kbId, Long userId, Long tenantId) {
+        KnowledgeBase kb = knowledgeBaseService.requireOwnedKb(kbId, userId, tenantId);
         Map<String, List<KnowledgeChunk>> chunksByDoc = chunkRepository
                 .findByKbIdOrderByDocUuidAscChunkIdxAsc(kbId).stream()
                 .collect(java.util.stream.Collectors.groupingBy(KnowledgeChunk::getDocUuid));

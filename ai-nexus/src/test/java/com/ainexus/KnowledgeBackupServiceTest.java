@@ -48,6 +48,9 @@ class KnowledgeBackupServiceTest {
     @Mock
     private com.ainexus.ai.rag.RetrievalCacheService retrievalCache;
 
+    @Mock
+    private com.ainexus.service.KnowledgeBaseService knowledgeBaseService;
+
     private KnowledgeBackupService service;
 
     private final KnowledgeBase kb = KnowledgeBase.builder()
@@ -55,7 +58,10 @@ class KnowledgeBackupServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new KnowledgeBackupService(kbRepository, docRepository, chunkRepository, vectorStore, retrievalCache);
+        service = new KnowledgeBackupService(kbRepository, docRepository, chunkRepository, vectorStore,
+                retrievalCache, knowledgeBaseService);
+        // 归属校验由 KnowledgeBaseService 统一负责，此处直接放行返回目标知识库
+        when(knowledgeBaseService.requireOwnedKb(any(), any(), any())).thenReturn(kb);
         when(kbRepository.findById(1L)).thenReturn(Optional.of(kb));
         when(kbRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(docRepository.findByKbIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(
@@ -67,7 +73,7 @@ class KnowledgeBackupServiceTest {
 
     @Test
     void shouldExportFullPayload() {
-        String json = service.export(1L);
+        String json = service.export(1L, 1L, 1L);
         assertTrue(json.contains("src-kb"));
         assertTrue(json.contains("片段零") && json.contains("片段一"));
         assertTrue(json.contains("a.txt"));
@@ -75,7 +81,7 @@ class KnowledgeBackupServiceTest {
 
     @Test
     void shouldImportWithRebuiltVectorsAndBackup() {
-        String json = service.export(1L);
+        String json = service.export(1L, 1L, 1L);
         when(docRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(chunkRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 

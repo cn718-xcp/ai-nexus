@@ -1,5 +1,6 @@
 package com.ainexus.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -12,6 +13,7 @@ import java.util.concurrent.Executor;
 /**
  * 应用级配置：异步线程池（AI 调用日志落库等旁路任务）。
  */
+@Slf4j
 @Configuration
 @EnableAsync
 @EnableConfigurationProperties({com.ainexus.ai.route.ModelRouteProperties.class,
@@ -42,8 +44,14 @@ public class AppConfig {
         executor.setMaxPoolSize(4);
         executor.setQueueCapacity(1000);
         executor.setThreadNamePrefix("ai-call-log-");
-        // 统计/审计属可丢失旁路：队列满时静默丢弃（记录告警），绝不让拒绝异常沿 publish 抛回业务主链路
-        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
+        // 统计/审计属可丢失旁路：队列满时丢弃而非把拒绝异常抛回业务主链路。
+        // 但必须留下告警——DiscardPolicy 是静默丢弃，审计行缺失将无从察觉。
+        executor.setRejectedExecutionHandler((r, e) -> log.warn(
+                "[async] aiCallExecutor saturated, task discarded: active={}, queued={}",
+                e.getActiveCount(), e.getQueue().size()));
+        // 停机前排空队列：否则已入队的审计/埋点事件随进程退出直接丢失
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(5);
         executor.initialize();
         return executor;
     }

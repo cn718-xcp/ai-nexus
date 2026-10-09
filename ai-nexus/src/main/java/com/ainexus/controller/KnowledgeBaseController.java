@@ -65,10 +65,11 @@ public class KnowledgeBaseController {
                 currentUserResolver.currentTenantId()));
     }
 
-    @Operation(summary = "导出知识库备份（元数据+全部片段原文 JSON）")
+    @Operation(summary = "导出知识库备份（元数据+全部片段原文 JSON，鉴权开启时校验归属）")
     @GetMapping("/{kbId}/backup")
     public ApiResponse<String> backup(@PathVariable Long kbId) {
-        return ApiResponse.ok(backupService.export(kbId));
+        return ApiResponse.ok(backupService.export(kbId, currentUserResolver.currentUserId(),
+                currentUserResolver.currentTenantId()));
     }
 
     @Operation(summary = "导入知识库备份（重新向量化重建）")

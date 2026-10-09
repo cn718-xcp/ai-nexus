@@ -14,16 +14,23 @@ import java.time.Duration;
 @Component("ollama")
 public class OllamaHealthIndicator implements HealthIndicator {
 
-    private final String baseUrl;
+    /** 探活超时：健康检查会被编排/网关高频调用，Ollama 卡死时不得让 /actuator/health 无限挂起 */
+    private static final Duration TIMEOUT = Duration.ofSeconds(2);
+
+    private final RestClient restClient;
 
     public OllamaHealthIndicator(@Value("${spring.ai.ollama.base-url:http://localhost:11434}") String baseUrl) {
-        this.baseUrl = baseUrl;
+        org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory =
+                new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(TIMEOUT);
+        requestFactory.setReadTimeout(TIMEOUT);
+        this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
     }
 
     @Override
     public Health health() {
         try {
-            String body = RestClient.builder().baseUrl(baseUrl).build().get()
+            String body = restClient.get()
                     .uri("/api/tags")
                     .retrieve()
                     .body(String.class);

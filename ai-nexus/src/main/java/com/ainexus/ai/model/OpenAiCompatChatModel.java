@@ -33,11 +33,23 @@ public class OpenAiCompatChatModel implements ChatModel {
     private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
+    /**
+     * 连接/读取超时：RestClient 默认无超时，端点挂起时请求线程会无限阻塞，
+     * 同时占住 ModelCallGate 信号量并耗尽线程池（雪崩源头）。读取超时按 LLM 生成长文本留足余量。
+     */
+    private static final java.time.Duration CONNECT_TIMEOUT = java.time.Duration.ofSeconds(5);
+    private static final java.time.Duration READ_TIMEOUT = java.time.Duration.ofSeconds(60);
+
     public OpenAiCompatChatModel(String baseUrl, String apiKey, String model) {
         this.baseUrl = baseUrl == null ? "https://api.openai.com" : baseUrl.replaceAll("/$", "");
         this.apiKey = apiKey;
         this.model = model;
+        org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory =
+                new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(CONNECT_TIMEOUT);
+        requestFactory.setReadTimeout(READ_TIMEOUT);
         this.restClient = RestClient.builder().baseUrl(this.baseUrl)
+                .requestFactory(requestFactory)
                 .defaultHeader("Authorization", "Bearer " + apiKey)
                 .build();
     }

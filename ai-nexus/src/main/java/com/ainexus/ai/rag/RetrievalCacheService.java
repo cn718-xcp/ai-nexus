@@ -92,19 +92,28 @@ public class RetrievalCacheService {
         if (!cacheEnabled()) {
             return;
         }
-        redissonClient.getBucket(RedisKeyConstants.CHAT_CONTEXT + "ragver:" + kbName)
+        redissonClient.getBucket(RedisKeyConstants.CHAT_CONTEXT + "ragver:" + kbKeyPart(kbName))
                 .set(String.valueOf(System.currentTimeMillis()));
+    }
+
+    /**
+     * 缓存 Key 中的知识库维度：知识库名由用户创建（长度可控但可含分隔符/换行），
+     * 直接拼接可构造出与其他缓存 Key 碰撞或逃逸命名空间的字符串，统一摘要化消除该风险。
+     */
+    private String kbKeyPart(String kbName) {
+        return kbName == null || kbName.isBlank() ? "_all_" : DigestUtil.md5Hex(kbName);
     }
 
     private String key(String kbName, String query, int topK) {
         // 版本号参与 Key：版本变化即失效；kbName 为空表示全库检索
-        RBucket<String> verBucket = redissonClient.getBucket(RedisKeyConstants.CHAT_CONTEXT + "ragver:"
-                + (kbName == null ? "_all_" : kbName));
+        String kbPart = kbKeyPart(kbName);
+        RBucket<String> verBucket = redissonClient.getBucket(
+                RedisKeyConstants.CHAT_CONTEXT + "ragver:" + kbPart);
         String version = String.valueOf(verBucket.get());
         // 语义归一化：去空白+小写，提升同义查询的缓存命中率
-        String normalized = query == null ? "" : query.replaceAll("\s+", "").toLowerCase();
+        String normalized = query == null ? "" : query.replaceAll("\\s+", "").toLowerCase();
         return RedisKeyConstants.CHAT_CONTEXT + "ragcache:" + version + ":"
-                + (kbName == null ? "_all_" : kbName) + ":" + topK + ":" + DigestUtil.md5Hex(normalized);
+                + kbPart + ":" + topK + ":" + DigestUtil.md5Hex(normalized);
     }
 
     /** 缓存序列化载体 */

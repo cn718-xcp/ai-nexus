@@ -40,7 +40,7 @@ public class ConfigController {
     @Operation(summary = "查询当前生效配置值（含优先级解析）")
     @GetMapping("/effective")
     public ApiResponse<Map<String, String>> effective(@RequestParam(required = false) Long tenantId) {
-        Long tid = currentUserResolver.currentTenantId() != null ? currentUserResolver.currentTenantId() : tenantId;
+        Long tid = resolveTenantId(tenantId);
         Map<String, String> result = new java.util.LinkedHashMap<>();
         DynamicConfigService.MANAGED_KEYS.forEach(key ->
                 result.put(key, dynamicConfigService.get(key, null, tid)));
@@ -57,8 +57,21 @@ public class ConfigController {
     @PutMapping
     @RateLimit(permits = 10, windowSeconds = 60)
     public ApiResponse<Void> put(@RequestBody ConfigRequest req) {
-        Long tid = currentUserResolver.currentTenantId() != null ? currentUserResolver.currentTenantId() : req.tenantId();
-        dynamicConfigService.put(req.key(), req.value(), tid, req.scope(), req.grayTenants());
+        dynamicConfigService.put(req.key(), req.value(), resolveTenantId(req.tenantId()),
+                req.scope(), req.grayTenants());
         return ApiResponse.ok();
+    }
+
+    /**
+     * 解析租户维度：鉴权开启时只能取自令牌（tid），请求参数中的 tenantId 一律忽略——
+     * 否则无 tid 的令牌可借客户端参数读写他人租户配置，属于越权。
+     * 仅鉴权关闭的调试态保留参数回退，保持与无鉴权时期一致的行为。
+     */
+    private Long resolveTenantId(Long requestedTenantId) {
+        Long tid = currentUserResolver.currentTenantId();
+        if (tid != null || currentUserResolver.isAuthEnabled()) {
+            return tid;
+        }
+        return requestedTenantId;
     }
 }

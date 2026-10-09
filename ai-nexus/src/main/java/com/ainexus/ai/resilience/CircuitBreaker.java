@@ -83,9 +83,13 @@ public class CircuitBreaker {
         }
         if (windowTotal.get() >= windowSize) {
             double rate = windowFailures.get() / (double) windowTotal.get();
-            if (rate >= failureRateThreshold && state.compareAndSet(State.CLOSED, State.OPEN)) {
+            if (rate >= failureRateThreshold) {
+                // 先写时间戳再发布 OPEN 状态：openedAt 为 volatile，读侧观察到 OPEN 必然能看到本次写入，
+                // 否则并发 tryAcquire 可能读到上一轮的陈旧 openedAt，导致冷却期被立刻跳过进入半开
                 openedAt = Instant.now();
-                log.warn("[circuit-breaker] {} CLOSED -> OPEN, failureRate={} >= {}", name, rate, failureRateThreshold);
+                if (state.compareAndSet(State.CLOSED, State.OPEN)) {
+                    log.warn("[circuit-breaker] {} CLOSED -> OPEN, failureRate={} >= {}", name, rate, failureRateThreshold);
+                }
             }
             reset();
         }

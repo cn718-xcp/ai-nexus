@@ -1,11 +1,14 @@
 package com.ainexus.controller;
 
 import com.ainexus.common.api.ApiResponse;
+import com.ainexus.common.api.ErrorCode;
 import com.ainexus.common.auth.CurrentUserResolver;
+import com.ainexus.common.exception.BizException;
 import com.ainexus.common.ratelimit.RateLimit;
 import com.ainexus.dto.request.RagChatRequest;
 import com.ainexus.dto.response.RagAnswerResponse;
 import com.ainexus.ai.rag.RagEvalService;
+import com.ainexus.service.KnowledgeBaseService;
 import com.ainexus.service.RagChatService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,6 +34,7 @@ public class RagController {
     private final RagChatService ragChatService;
     private final RagEvalService ragEvalService;
     private final CurrentUserResolver currentUserResolver;
+    private final KnowledgeBaseService knowledgeBaseService;
 
     public record EvalRequest(String kbName, Integer topK, List<RagEvalService.EvalCase> cases) {
     }
@@ -39,7 +43,20 @@ public class RagController {
     @PostMapping("/eval")
     @RateLimit(permits = 3, windowSeconds = 60)
     public ApiResponse<RagEvalService.EvalReport> eval(@RequestBody EvalRequest req) {
-        return ApiResponse.ok(ragEvalService.evaluate(req.kbName(),
+        String kbName = req.kbName();
+        Long userId = currentUserResolver.currentUserId();
+        Long tenantId = currentUserResolver.currentTenantId();
+        // 评估会回传命中片段原文：鉴权开启时必须限定在调用方自有知识库，
+        // 否则可通过 kbName 为空（全量检索）或指定他人知识库名读取跨租户文档内容
+        if (userId != null) {
+            if (kbName == null || kbName.isBlank()) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "评估需指定知识库名称（kbName）");
+            }
+            if (knowledgeBaseService.list(userId, tenantId).stream().noneMatch(kb -> kb.getName().equals(kbName))) {
+                throw new BizException(ErrorCode.KB_NOT_FOUND);
+            }
+        }
+        return ApiResponse.ok(ragEvalService.evaluate(kbName,
                 req.topK() == null ? 5 : req.topK(), req.cases()));
     }
 

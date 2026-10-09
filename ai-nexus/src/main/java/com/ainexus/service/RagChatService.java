@@ -43,8 +43,7 @@ public class RagChatService {
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
     private final com.ainexus.ai.rag.CitationMarker citationMarker;
     private final com.ainexus.ai.rag.RagProperties ragProperties;
-    private final com.ainexus.ai.security.PromptInjectionDetector injectionDetector;
-    private final com.ainexus.ai.security.SensitiveWordFilter sensitiveWordFilter;
+    private final com.ainexus.ai.security.ContentSafetyGuard contentSafetyGuard;
     @org.springframework.beans.factory.annotation.Value("${ainexus.rag.groundedness-check:false}")
     private boolean groundednessCheck;
     private final com.ainexus.ai.eval.RagEvalLoopService evalLoopService;
@@ -58,12 +57,7 @@ public class RagChatService {
         }
         tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
         // 内容安全：注入检测 + 输入敏感词（security.enabled=false 直通）
-        if (injectionDetector.detect(question).injected()) {
-            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含不允许的内容");
-        }
-        if (sensitiveWordFilter.containsSensitive(question)) {
-            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含敏感词");
-        }
+        contentSafetyGuard.checkInput(question);
         // 会话 ID 在入口统一确定，保证流水线历史加载与响应返回一致
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         // 场景归一：未指定走 RAG 专用路由（也是熔断器维度）
@@ -116,7 +110,7 @@ public class RagChatService {
 
         List<ChunkReference> references = toReferences(context.getDocuments());
         // 输出安全：敏感词掩码
-        String answer = sensitiveWordFilter.mask(result.result());
+        String answer = contentSafetyGuard.maskOutput(result.result());
         // 引用高亮：答案中与引用片段重叠的句子追加来源序号（rag.citation-markers 开关）
         if (ragProperties.isCitationMarkers()) {
             answer = citationMarker.mark(answer, references);
@@ -146,12 +140,7 @@ public class RagChatService {
         tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
         // 内容安全与同步 ask 保持一致：注入检测 + 输入敏感词（security.enabled=false 直通）。
         // 异常在建流前同步抛出 → HTTP 200 JSON ApiResponse，前端流式客户端按 content-type 识别
-        if (injectionDetector.detect(question).injected()) {
-            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含不允许的内容");
-        }
-        if (sensitiveWordFilter.containsSensitive(question)) {
-            throw new BizException(ErrorCode.SECURITY_BLOCKED, "输入包含敏感词");
-        }
+        contentSafetyGuard.checkInput(question);
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         RagContext context = ragPipeline.run(RagContext.builder()
                 .question(question)

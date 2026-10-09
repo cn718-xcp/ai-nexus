@@ -52,12 +52,15 @@ public class TwoPhaseAgentService {
     private final AgentProperties properties;
     private final com.ainexus.ai.resilience.ModelCallGate gate;
     private final com.ainexus.ai.tenant.TenantQuotaService tenantQuotaService;
+    private final com.ainexus.ai.security.ContentSafetyGuard contentSafetyGuard;
 
     public record AgentResult(String answer, String thinkingChain, int executedSteps, boolean degraded) {
     }
 
     public AgentResult execute(String sessionId, String prompt, Long userId, Long tenantId) {
         long start = System.currentTimeMillis();
+        // 内容安全：规划/执行/降级三条链路共用同一入口守卫，避免两阶段 Agent 绕过检测
+        contentSafetyGuard.checkInput(prompt);
         String sid = sessionId == null || sessionId.isBlank() ? UUID.randomUUID().toString() : sessionId;
         // 租户配额三重管控：租户禁用拦截 + 租户/用户 QPS + 每日限额（与单阶段 AgentService 对齐；tenant 关闭态直通）
         tenantQuotaService.ensureModelCallAllowed(tenantId, userId);
@@ -127,6 +130,8 @@ public class TwoPhaseAgentService {
             }
         }
 
+        // 输出安全：敏感词掩码（与 ChatService/RagChatService 一致）
+        answer = contentSafetyGuard.maskOutput(answer);
         chatHistoryService.saveUser(sid, prompt, "agent-2p", userId, tenantId);
         chatHistoryService.saveAssistant(sid, answer, "agent-2p", userId, tenantId);
         eventPublisher.publish(AiCallEvent.builder()

@@ -43,6 +43,14 @@ public class CurrentUserResolver {
         return tid instanceof Number number ? number.longValue() : null;
     }
 
+    /**
+     * 鉴权开关状态：调用方据此决定"客户端传入的身份维度"是否可信。
+     * 鉴权开启后身份只能来自令牌，任何请求体/参数里自带的 userId/tenantId 都必须忽略。
+     */
+    public boolean isAuthEnabled() {
+        return authEnabled;
+    }
+
     private Jwt currentJwt() {
         if (!authEnabled) {
             return null;

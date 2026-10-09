@@ -67,13 +67,11 @@ public class ModelCallResilienceTemplate {
             double failureRate = dynamicConfig.getNumber("resilience.circuit-failure-rate", circuitFailureRate, null);
             long openSeconds = (long) dynamicConfig.getNumber("resilience.circuit-open-seconds", circuitOpenSeconds, null);
             String paramsKey = window + ":" + failureRate + ":" + openSeconds;
-            BreakerEntry entry = breakers.computeIfAbsent(scene,
-                    s -> new BreakerEntry(paramsKey, new CircuitBreaker(s, window, failureRate, Duration.ofSeconds(openSeconds))));
-            if (!entry.paramsKey().equals(paramsKey)) {
-                // 参数变更：重建熔断器（窗口统计随之重置，属配置变更的可接受代价）
-                entry = new BreakerEntry(paramsKey, new CircuitBreaker(scene, window, failureRate, Duration.ofSeconds(openSeconds)));
-                breakers.put(scene, entry);
-            }
+            // compute 对同一 key 原子执行：并发首次调用/参数变更都不会装出两个熔断器实例，
+            // 避免失败统计被拆散、OPEN 状态丢失（参数变更即重建，窗口统计重置属可接受代价）
+            BreakerEntry entry = breakers.compute(scene, (s, existing) ->
+                    existing != null && existing.paramsKey().equals(paramsKey) ? existing
+                            : new BreakerEntry(paramsKey, new CircuitBreaker(s, window, failureRate, Duration.ofSeconds(openSeconds))));
             breaker = entry.breaker();
             if (!breaker.tryAcquire()) {
                 log.warn("[resilience] {} circuit OPEN, skip primary call", scene);
@@ -100,9 +98,12 @@ public class ModelCallResilienceTemplate {
             } catch (Exception e) {
                 last = e;
                 log.warn("[resilience] call failed, attempt={}/{}, cause={}", attempt + 1, MAX_RETRIES + 1, e.getMessage());
-                if (attempt < MAX_RETRIES) {
-                    sleep(BASE_BACKOFF_MS << attempt);
+                // 已中断（客户端断开/停机，含退避等待期间被中断）即放弃剩余重试：
+                // 继续发请求只会额外打满模型并拖延线程回收
+                if (Thread.currentThread().isInterrupted() || attempt >= MAX_RETRIES) {
+                    break;
                 }
+                sleep(BASE_BACKOFF_MS << attempt);
             }
         }
         log.error("[resilience] all attempts failed, fallback to {}", fallbackName, last);

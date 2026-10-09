@@ -26,12 +26,15 @@ public class MultimodalService {
 
     private final ModelRouteContext routeContext;
     private final AiCallEventPublisher eventPublisher;
+    private final com.ainexus.ai.security.ContentSafetyGuard contentSafetyGuard;
 
     /**
      * 图片理解：路由到多模态模型（如 llava:7b / qwen2.5vl），以 Media 形式混合输入。
      */
     public String understandImage(String question, MultipartFile image) {
         validateImage(image);
+        // 内容安全：随图文本同样进入模型提示词，必须与对话链路共用同一入口守卫
+        contentSafetyGuard.checkInput(question);
         try {
             byte[] bytes = image.getBytes();
             String contentType = image.getContentType() == null ? "image/png" : image.getContentType();

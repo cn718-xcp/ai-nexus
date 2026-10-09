@@ -20,11 +20,14 @@ import java.util.List;
 public class StructuredOutputService {
 
     private final ModelRouteContext routeContext;
+    private final com.ainexus.ai.security.ContentSafetyGuard contentSafetyGuard;
 
     /**
      * 实体抽取：从一段文本中抽取关键信息。
      */
     public ExtractedInfo extract(String text) {
+        // 内容安全：待抽取文本同样进入模型提示词，必须与对话链路共用同一入口守卫
+        contentSafetyGuard.checkInput(text);
         return ChatClient.create(routeContext.route(ModelScene.CHAT))
                 .prompt()
                 .user(u -> u.text("请从以下文本中抽取信息：{text}").param("text", text))
@@ -36,6 +39,7 @@ public class StructuredOutputService {
      * 列表抽取：返回结构化 List。
      */
     public List<String> keywords(String topic) {
+        contentSafetyGuard.checkInput(topic);
         return ChatClient.create(routeContext.route(ModelScene.CHAT))
                 .prompt()
                 .user("列出关于「" + topic + "」的 5 个关键要点，每条不超过 20 字")
