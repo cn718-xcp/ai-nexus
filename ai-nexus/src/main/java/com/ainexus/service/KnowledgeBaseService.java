@@ -7,8 +7,10 @@ import com.ainexus.common.api.ErrorCode;
 import com.ainexus.common.exception.BizException;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.ainexus.domain.entity.KnowledgeBase;
+import com.ainexus.domain.entity.KnowledgeChunk;
 import com.ainexus.domain.entity.KnowledgeDocument;
 import com.ainexus.domain.repository.KnowledgeBaseRepository;
+import com.ainexus.domain.repository.KnowledgeChunkRepository;
 import com.ainexus.domain.repository.KnowledgeDocumentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +37,7 @@ public class KnowledgeBaseService {
 
     private final KnowledgeBaseRepository kbRepository;
     private final KnowledgeDocumentRepository docRepository;
+    private final KnowledgeChunkRepository chunkRepository;
     private final VectorStore vectorStore;
     private final RetrievalCacheService retrievalCache;
     private final org.redisson.api.RedissonClient redissonClient;
@@ -115,6 +118,11 @@ public class KnowledgeBaseService {
     public KnowledgeDocument uploadDocument(Long kbId, MultipartFile file, Long userId, Long tenantId) {
         KnowledgeBase kb = requireOwnedKb(kbId, userId, tenantId);
         validateExtension(file);
+        return withKbLock(kbId, () -> txTemplate.execute(status -> doUpload(kb, file)));
+    }
+
+    /** 分布式锁辅助：按 kbId 串行化知识库级操作，锁在事务外获取（等锁不占 DB 连接），仅在仍持有时释放 */
+    private <T> T withKbLock(Long kbId, java.util.function.Supplier<T> action) {
         org.redisson.api.RLock lock = redissonClient.getLock("ainexus:lock:kb:" + kbId);
         boolean locked = false;
         try {
@@ -123,7 +131,7 @@ public class KnowledgeBaseService {
             if (!locked) {
                 throw new BizException(ErrorCode.BIZ_ERROR, "该知识库正在处理其他操作，请稍后再试");
             }
-            return txTemplate.execute(status -> doUpload(kb, file));
+            return action.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");
@@ -183,20 +191,13 @@ public class KnowledgeBaseService {
     @Audited(action = "KB_DELETE", target = "#kbId")
     public void delete(Long kbId, Long userId, Long tenantId) {
         KnowledgeBase kb = requireOwnedKb(kbId, userId, tenantId);
-        org.redisson.api.RLock lock = redissonClient.getLock("ainexus:lock:kb:" + kbId);
-        boolean locked = false;
-        try {
-            locked = lock.tryLock(30, 120, java.util.concurrent.TimeUnit.SECONDS);
-            if (!locked) {
-                throw new BizException(ErrorCode.BIZ_ERROR, "该知识库正在处理其他操作，请稍后再试");
-            }
+        withKbLock(kbId, () -> {
             txTemplate.executeWithoutResult(status -> {
                 List<KnowledgeDocument> docs = docRepository.findByKbIdOrderByCreatedAtDesc(kbId);
                 for (KnowledgeDocument doc : docs) {
                     List<String> chunkIds = new ArrayList<>(doc.getChunkCount());
                     for (int i = 0; i < doc.getChunkCount(); i++) {
-                        chunkIds.add(UUID.nameUUIDFromBytes((doc.getDocUuid() + ":" + i)
-                                .getBytes(StandardCharsets.UTF_8)).toString());
+                        chunkIds.add(chunkId(doc.getDocUuid(), i));
                     }
                     // chunkCount 为 0 的脏数据会导致空列表删除调用异常，跳过
                     if (!chunkIds.isEmpty()) {
@@ -209,15 +210,87 @@ public class KnowledgeBaseService {
                 log.info("[kb] knowledge base deleted, name={}, docs={}", kb.getName(), docs.size());
                 retrievalCache.bumpVersion(kb.getName());
             });
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BizException(ErrorCode.BIZ_ERROR, "获取知识库锁被中断");
-        } finally {
-            // 同 uploadDocument：租约到期后锁已被自动释放，避免 unlock 抛 IllegalMonitorStateException
-            if (locked && lock.isHeldByCurrentThread()) {
-                lock.unlock();
+            return null;
+        });
+    }
+
+    /** 确定性 Chunk ID：与入库/删除共用同一规则（docUuid:idx 的 nameUUID） */
+    private String chunkId(String docUuid, int idx) {
+        return UUID.nameUUIDFromBytes((docUuid + ":" + idx).getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /** 向量重建结果 */
+    public record ReindexResult(Long kbId, String kbName, int docCount, int chunkCount, int skippedDocs) {
+    }
+
+    /**
+     * 重建单个知识库向量：从 MySQL Chunk 备份重灌，补写 user_id/tenant_id 归属元数据。
+     * 用途：存量向量（归属元数据缺失）迁移——鉴权开启后无归属元数据的向量会被归属过滤排除，
+     * 必须重灌才能继续被检索。父子分块文档按父块原文重灌（子块粒度不保留，召回不受影响）。
+     * 归属为空的库（鉴权关闭期创建）重灌后仍无归属元数据，仅鉴权关闭态可检索。
+     */
+    @Audited(action = "KB_REINDEX", target = "#kbId")
+    public ReindexResult reindexVectors(Long kbId, Long userId, Long tenantId) {
+        KnowledgeBase kb = requireOwnedKb(kbId, userId, tenantId);
+        return withKbLock(kbId, () -> doReindex(kb));
+    }
+
+    /** 重建全部知识库向量（管理面入口，鉴权由控制器 AccessGuard 把关；逐库串行，单库失败不影响其余） */
+    @Audited(action = "KB_REINDEX_ALL", target = "'all'")
+    public List<ReindexResult> reindexAll() {
+        List<ReindexResult> results = new ArrayList<>();
+        for (KnowledgeBase kb : kbRepository.findAll()) {
+            try {
+                results.add(withKbLock(kb.getId(), () -> doReindex(kb)));
+            } catch (Exception e) {
+                log.warn("[kb-reindex] failed, kb={}, cause={}", kb.getName(), e.getMessage());
+                results.add(new ReindexResult(kb.getId(), kb.getName(), 0, 0, 0));
             }
         }
+        return results;
+    }
+
+    private ReindexResult doReindex(KnowledgeBase kb) {
+        return txTemplate.execute(status -> {
+            List<KnowledgeDocument> docs = docRepository.findByKbIdOrderByCreatedAtDesc(kb.getId());
+            java.util.Map<String, List<KnowledgeChunk>> chunksByDoc = chunkRepository
+                    .findByKbIdOrderByDocUuidAscChunkIdxAsc(kb.getId()).stream()
+                    .collect(java.util.stream.Collectors.groupingBy(KnowledgeChunk::getDocUuid));
+            int chunkCount = 0, skipped = 0, migrated = 0;
+            for (KnowledgeDocument doc : docs) {
+                List<KnowledgeChunk> chunks = chunksByDoc.getOrDefault(doc.getDocUuid(), List.of());
+                if (chunks.isEmpty()) {
+                    skipped++;
+                    continue;
+                }
+                // 旧向量按确定性 ID 删除（与 delete() 同规则）；换新 docUuid 重灌，向量 ID 全部更新
+                List<String> oldIds = new ArrayList<>(doc.getChunkCount());
+                for (int i = 0; i < doc.getChunkCount(); i++) {
+                    oldIds.add(chunkId(doc.getDocUuid(), i));
+                }
+                if (!oldIds.isEmpty()) {
+                    vectorStore.delete(oldIds);
+                }
+                String newDocUuid = UUID.randomUUID().toString();
+                List<Document> vectors = new ArrayList<>(chunks.size());
+                for (KnowledgeChunk chunk : chunks) {
+                    vectors.add(new Document(chunkId(newDocUuid, chunk.getChunkIdx()), chunk.getContent(),
+                            documentIngestor.metadata(kb, newDocUuid, doc.getFileName(),
+                                    chunk.getChunkIdx(), 0, chunk.getContent().length(), null)));
+                }
+                vectorStore.add(vectors);
+                // Chunk 备份行原地换绑新 docUuid（内容/序号不变），保证后续备份导出/再次重建可用
+                chunks.forEach(c -> c.setDocUuid(newDocUuid));
+                chunkRepository.saveAll(chunks);
+                doc.setDocUuid(newDocUuid);
+                docRepository.save(doc);
+                chunkCount += chunks.size();
+                migrated++;
+            }
+            retrievalCache.bumpVersion(kb.getName());
+            log.info("[kb-reindex] kb={}, docs={}, chunks={}, skipped={}", kb.getName(), migrated, chunkCount, skipped);
+            return new ReindexResult(kb.getId(), kb.getName(), migrated, chunkCount, skipped);
+        });
     }
 
     @Transactional(readOnly = true)

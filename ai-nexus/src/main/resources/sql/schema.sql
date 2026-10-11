@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
     id            BIGINT AUTO_INCREMENT PRIMARY KEY,
     username      VARCHAR(64)  NOT NULL COMMENT '用户名，唯一',
     password_hash VARCHAR(72)  NOT NULL COMMENT 'BCrypt 摘要',
+    role          VARCHAR(20)  NOT NULL DEFAULT 'USER' COMMENT '角色：ADMIN/USER（首个注册用户自动成为管理员）',
     tenant_id     BIGINT       NULL COMMENT '所属租户（多租户开启时生效）',
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_username (username)
@@ -116,6 +117,9 @@ CREATE TABLE IF NOT EXISTS sys_tenant (
 -- ALTER TABLE chat_message    ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
 -- ALTER TABLE ai_call_log     ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
 -- ALTER TABLE audit_log       ADD COLUMN tenant_id BIGINT NULL COMMENT '所属租户';
+
+-- 角色列（管理面鉴权；存量库手动执行一次，重复执行报 Duplicate column 可忽略。首个注册用户已自动 ADMIN，无需手工提升）
+-- ALTER TABLE sys_user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'USER' COMMENT '角色：ADMIN/USER';
 
 -- 动态配置表（运行时配置管控；dynamic.enabled=true 时启用）
 CREATE TABLE IF NOT EXISTS sys_config (

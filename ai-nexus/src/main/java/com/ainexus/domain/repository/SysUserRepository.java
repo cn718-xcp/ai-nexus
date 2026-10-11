@@ -10,4 +10,7 @@ public interface SysUserRepository extends JpaRepository<SysUser, Long> {
     Optional<SysUser> findByUsername(String username);
 
     boolean existsByUsername(String username);
+
+    /** 管理员数量（注册时引导首个用户为 ADMIN） */
+    long countByRole(String role);
 }

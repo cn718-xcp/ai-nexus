@@ -43,6 +43,12 @@ public class CurrentUserResolver {
         return tid instanceof Number number ? number.longValue() : null;
     }
 
+    /** 当前角色：令牌携带 role claim 时返回（ADMIN/USER）；关闭态/匿名/旧令牌无角色返回 null */
+    public String currentRole() {
+        Jwt jwt = currentJwt();
+        return jwt == null ? null : jwt.getClaimAsString(JwtService.CLAIM_ROLE);
+    }
+
     /**
      * 鉴权开关状态：调用方据此决定"客户端传入的身份维度"是否可信。
      * 鉴权开启后身份只能来自令牌，任何请求体/参数里自带的 userId/tenantId 都必须忽略。

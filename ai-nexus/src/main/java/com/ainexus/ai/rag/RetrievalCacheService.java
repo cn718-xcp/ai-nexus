@@ -42,11 +42,11 @@ public class RetrievalCacheService {
     }
 
     /** 查询缓存：命中返回缓存文档，未命中返回 null */
-    public List<Document> get(String kbName, String query, int topK) {
+    public List<Document> get(String kbName, String query, int topK, Long userId, Long tenantId) {
         if (!cacheEnabled()) {
             return null;
         }
-        RBucket<String> bucket = redissonClient.getBucket(key(kbName, query, topK));
+        RBucket<String> bucket = redissonClient.getBucket(key(kbName, query, topK, userId, tenantId));
         String json = bucket.get();
         if (json == null) {
             return null;
@@ -72,7 +72,7 @@ public class RetrievalCacheService {
     }
 
     /** 写缓存（失败不影响主链路） */
-    public void put(String kbName, String query, int topK, List<Document> documents) {
+    public void put(String kbName, String query, int topK, List<Document> documents, Long userId, Long tenantId) {
         if (!cacheEnabled() || documents == null || documents.isEmpty()) {
             return;
         }
@@ -80,19 +80,25 @@ public class RetrievalCacheService {
             List<CachedDoc> payload = documents.stream()
                     .map(d -> new CachedDoc(d.getId(), d.getText(), d.getMetadata(), d.getScore()))
                     .toList();
-            redissonClient.getBucket(key(kbName, query, topK))
+            redissonClient.getBucket(key(kbName, query, topK, userId, tenantId))
                     .set(JSONUtil.toJsonStr(payload), TTL);
         } catch (Exception e) {
             log.warn("[rag-cache] put failed: {}", e.getMessage());
         }
     }
 
-    /** 知识库更新（上传/删除文档）时版本自增，旧缓存 Key 全部失效 */
+    /**
+     * 知识库更新（上传/删除文档）时版本自增，旧缓存 Key 全部失效。
+     * 同时推进全局版本：kbName 为空的"全库检索"条目挂在全局版本下，
+     * 任一知识库变更都必须使其失效，否则全库缓存最长滞后 TTL（10 分钟）。
+     */
     public void bumpVersion(String kbName) {
         if (!cacheEnabled()) {
             return;
         }
         redissonClient.getBucket(RedisKeyConstants.CHAT_CONTEXT + "ragver:" + kbKeyPart(kbName))
+                .set(String.valueOf(System.currentTimeMillis()));
+        redissonClient.getBucket(RedisKeyConstants.CHAT_CONTEXT + "ragver:_global_")
                 .set(String.valueOf(System.currentTimeMillis()));
     }
 
@@ -104,16 +110,27 @@ public class RetrievalCacheService {
         return kbName == null || kbName.isBlank() ? "_all_" : DigestUtil.md5Hex(kbName);
     }
 
-    private String key(String kbName, String query, int topK) {
-        // 版本号参与 Key：版本变化即失效；kbName 为空表示全库检索
+    /** 归属维度：全库检索条目必须按调用者隔离，否则 A 的全库缓存会回给 B（跨用户串数据） */
+    private String ownerPart(Long userId, Long tenantId) {
+        if (userId != null) {
+            return "u" + userId;
+        }
+        if (tenantId != null) {
+            return "t" + tenantId;
+        }
+        return "anon";
+    }
+
+    private String key(String kbName, String query, int topK, Long userId, Long tenantId) {
         String kbPart = kbKeyPart(kbName);
-        RBucket<String> verBucket = redissonClient.getBucket(
-                RedisKeyConstants.CHAT_CONTEXT + "ragver:" + kbPart);
-        String version = String.valueOf(verBucket.get());
+        // 版本号参与 Key：命名库按库版本失效；空 kbName 的全库条目挂全局版本（任一库变更即失效）
+        String versionKey = RedisKeyConstants.CHAT_CONTEXT + "ragver:"
+                + ("_all_".equals(kbPart) ? "_global_" : kbPart);
+        String version = String.valueOf(redissonClient.getBucket(versionKey).get());
         // 语义归一化：去空白+小写，提升同义查询的缓存命中率
         String normalized = query == null ? "" : query.replaceAll("\\s+", "").toLowerCase();
         return RedisKeyConstants.CHAT_CONTEXT + "ragcache:" + version + ":"
-                + kbPart + ":" + topK + ":" + DigestUtil.md5Hex(normalized);
+                + kbPart + ":" + ownerPart(userId, tenantId) + ":" + topK + ":" + DigestUtil.md5Hex(normalized);
     }
 
     /** 缓存序列化载体 */

@@ -10,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -51,7 +50,8 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
         // 过召回：候选池 = topK * overFetch，为融合与精排留出重排空间
         int candidateK = Math.max(context.getTopK(), context.getTopK() * properties.getOverFetch());
         // 检索结果缓存：重复问题（高频知识库 FAQ 场景）直接跳过向量库 IO
-        List<Document> cached = retrievalCache.get(context.getKnowledgeBaseName(), context.getRewrittenQuery(), candidateK);
+        List<Document> cached = retrievalCache.get(context.getKnowledgeBaseName(), context.getRewrittenQuery(),
+                candidateK, context.getUserId(), context.getTenantId());
         if (cached != null) {
             return cached;
         }
@@ -59,9 +59,11 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
                 .query(context.getRewrittenQuery())
                 .topK(candidateK)
                 .similarityThreshold(0.5);
-        if (context.getKnowledgeBaseName() != null && !context.getKnowledgeBaseName().isBlank()) {
-            builder.filterExpression(new FilterExpressionBuilder()
-                    .eq("knowledge_base_name", context.getKnowledgeBaseName()).build());
+        // 知识库名 + 归属过滤（与基类一致，保证缓存命中与回源检索同范围）
+        org.springframework.ai.vectorstore.filter.Filter.Expression filter =
+                buildFilter(context.getKnowledgeBaseName(), context.getUserId(), context.getTenantId());
+        if (filter != null) {
+            builder.filterExpression(filter);
         }
         List<Document> candidates = vectorStore.similaritySearch(builder.build());
         List<Document> docs = candidates == null ? List.of() : candidates;
@@ -73,7 +75,8 @@ public class DefaultRagPipeline extends AbstractRagPipeline {
                     properties.getRrfK(), properties.getPositionWeight());
             log.info("[rag] hybrid fusion applied, candidates={}", docs.size());
         }
-        retrievalCache.put(context.getKnowledgeBaseName(), context.getRewrittenQuery(), candidateK, docs);
+        retrievalCache.put(context.getKnowledgeBaseName(), context.getRewrittenQuery(), candidateK, docs,
+                context.getUserId(), context.getTenantId());
         return docs;
     }
 

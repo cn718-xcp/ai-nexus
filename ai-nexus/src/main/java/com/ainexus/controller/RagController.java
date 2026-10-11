@@ -57,7 +57,7 @@ public class RagController {
             }
         }
         return ApiResponse.ok(ragEvalService.evaluate(kbName,
-                req.topK() == null ? 5 : req.topK(), req.cases()));
+                req.topK() == null ? 5 : req.topK(), req.cases(), userId, tenantId));
     }
 
     @Operation(summary = "RAG 问答（同步，含引用片段）")

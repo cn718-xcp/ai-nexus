@@ -140,9 +140,13 @@ public class DocumentIngestor {
         return result;
     }
 
-    /** 溯源元数据：知识库名/doc_id/文件名/父块序号/字符起止/章节 */
-    private Map<String, Object> metadata(com.ainexus.domain.entity.KnowledgeBase kb, String docUuid,
-                                         String fileName, int chunkIdx, int start, int end, String section) {
+    /**
+     * 溯源元数据：知识库名/doc_id/文件名/父块序号/字符起止/章节 + 归属（user_id/tenant_id）。
+     * 归属元数据是向量层租户隔离的依据：检索侧据此过滤，防止"全库检索"跨租户读数；
+     * 值为 null 时不写入（鉴权/多租户关闭态产生的向量不带归属，行为与历史版本一致）。
+     */
+    public Map<String, Object> metadata(com.ainexus.domain.entity.KnowledgeBase kb, String docUuid,
+                                        String fileName, int chunkIdx, int start, int end, String section) {
         Map<String, Object> meta = new java.util.HashMap<>();
         meta.put("knowledge_base_name", kb.getName());
         meta.put("doc_id", docUuid);
@@ -152,6 +156,12 @@ public class DocumentIngestor {
         meta.put("char_end", end);
         if (section != null) {
             meta.put("section", section);
+        }
+        if (kb.getUserId() != null) {
+            meta.put("user_id", kb.getUserId());
+        }
+        if (kb.getTenantId() != null) {
+            meta.put("tenant_id", kb.getTenantId());
         }
         return meta;
     }

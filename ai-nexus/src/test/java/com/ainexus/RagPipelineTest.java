@@ -80,4 +80,19 @@ class RagPipelineTest {
         assertTrue(ctx.getChunks().isEmpty());
         assertTrue(ctx.getFinalPrompt().contains("未检索到相关资料"));
     }
+
+    @Test
+    void shouldFilterByOwnerWhenUserIdPresent() {
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
+
+        // 鉴权开启：即使 kbName 为空（全库检索），也必须带 user_id 过滤，防止跨租户读取
+        pipeline.run(RagContext.builder()
+                .question("什么是 Spring AI？").knowledgeBaseName(null).topK(5).userId(42L).build());
+
+        org.mockito.ArgumentCaptor<SearchRequest> captor = org.mockito.ArgumentCaptor.forClass(SearchRequest.class);
+        verify(vectorStore).similaritySearch(captor.capture());
+        Filter.Expression filter = captor.getValue().getFilterExpression();
+        assertNotNull(filter, "鉴权开启时全库检索也必须携带归属过滤");
+        assertTrue(filter.toString().contains("user_id"), "过滤表达式应限定 user_id，实际: " + filter);
+    }
 }

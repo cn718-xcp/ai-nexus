@@ -88,4 +88,20 @@ public class KnowledgeBaseController {
         knowledgeBaseService.delete(kbId, currentUserResolver.currentUserId(), currentUserResolver.currentTenantId());
         return ApiResponse.ok();
     }
+
+    @Operation(summary = "重建知识库向量（从 Chunk 备份补写归属元数据，存量数据迁移用）")
+    @PostMapping("/{kbId}/reindex")
+    @RateLimit(permits = 3, windowSeconds = 60)
+    public ApiResponse<KnowledgeBaseService.ReindexResult> reindex(@PathVariable Long kbId) {
+        return ApiResponse.ok(knowledgeBaseService.reindexVectors(kbId,
+                currentUserResolver.currentUserId(), currentUserResolver.currentTenantId()));
+    }
+
+    @Operation(summary = "重建全部知识库向量（仅管理员，存量数据迁移用）")
+    @PostMapping("/admin/reindex-all")
+    @RateLimit(permits = 1, windowSeconds = 60)
+    @org.springframework.security.access.prepost.PreAuthorize("@accessGuard.isAdmin()")
+    public ApiResponse<List<KnowledgeBaseService.ReindexResult>> reindexAll() {
+        return ApiResponse.ok(knowledgeBaseService.reindexAll());
+    }
 }

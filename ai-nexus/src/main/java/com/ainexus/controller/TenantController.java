@@ -7,6 +7,7 @@ import com.ainexus.service.TenantService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -14,11 +15,13 @@ import java.util.Map;
 
 /**
  * 租户管理接口：CRUD / 启停 / 配额配置（tenant.enabled=true 时生效的多租户管控面）。
+ * 全部接口仅管理员可用（鉴权开启时；关闭态由 AccessGuard 放行保持调试体验）。
  */
 @Tag(name = "Tenant", description = "租户管理")
 @RestController
 @RequestMapping("/api/v1/tenants")
 @RequiredArgsConstructor
+@PreAuthorize("@accessGuard.isAdmin()")
 public class TenantController {
 
     private final TenantService tenantService;

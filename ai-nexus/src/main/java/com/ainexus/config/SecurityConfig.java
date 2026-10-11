@@ -5,6 +5,7 @@ import com.ainexus.common.api.ErrorCode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -16,9 +17,12 @@ import org.springframework.security.web.SecurityFilterChain;
  * Spring Security 配置：双模式互斥切换，保证向后兼容。
  * - auth.enabled=false（dev 默认）：放行全部请求，行为与无鉴权时期完全一致
  * - auth.enabled=true：JWT Resource Server 无状态鉴权，仅放行认证/健康/文档端点
+ * 方法级鉴权（@PreAuthorize("@accessGuard.isAdmin()")）在两种模式下均生效：
+ * 关闭态由 AccessGuard 直接放行，开启态按令牌 role claim 判定。
  */
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
     /** 白名单：认证接口、健康探活、Actuator、Swagger 文档 */

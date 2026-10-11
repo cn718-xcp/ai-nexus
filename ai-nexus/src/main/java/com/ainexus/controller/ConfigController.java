@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,6 +18,7 @@ import java.util.Map;
 /**
  * 动态配置管理接口：查询 / 修改（变更实时生效 + 审计落库）。
  * dynamic.enabled=false 时仅可查询本地默认值，写操作无效（直通模式）。
+ * 全量明细与写操作仅管理员可用（鉴权开启时）。
  */
 @Tag(name = "Config", description = "动态配置管控")
 @RestController
@@ -47,15 +49,17 @@ public class ConfigController {
         return ApiResponse.ok(result);
     }
 
-    @Operation(summary = "全部配置记录（DB 落库明细）")
+    @Operation(summary = "全部配置记录（DB 落库明细，仅管理员）")
     @GetMapping
+    @PreAuthorize("@accessGuard.isAdmin()")
     public ApiResponse<List<SysConfig>> list() {
         return ApiResponse.ok(dynamicConfigService.listAll());
     }
 
-    @Operation(summary = "修改配置（实时生效，含灰度/租户维度与变更审计）")
+    @Operation(summary = "修改配置（实时生效，含灰度/租户维度与变更审计，仅管理员）")
     @PutMapping
     @RateLimit(permits = 10, windowSeconds = 60)
+    @PreAuthorize("@accessGuard.isAdmin()")
     public ApiResponse<Void> put(@RequestBody ConfigRequest req) {
         dynamicConfigService.put(req.key(), req.value(), resolveTenantId(req.tenantId()),
                 req.scope(), req.grayTenants());

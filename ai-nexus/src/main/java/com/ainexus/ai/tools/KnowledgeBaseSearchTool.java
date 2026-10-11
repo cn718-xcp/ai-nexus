@@ -1,10 +1,12 @@
 package com.ainexus.ai.tools;
 
+import com.ainexus.common.auth.CurrentUserResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -16,6 +18,8 @@ import java.util.stream.Collectors;
 /**
  * 知识库检索工具：将 RAG 检索能力封装为 Agent 工具，
  * 模型可在复杂任务中自主决定"先查知识库、再调工具、最后整合回答"的多步执行链路。
+ * 隔离：工具方法在请求线程内同步执行，直接读取 SecurityContext 的用户/租户身份做归属过滤，
+ * 避免模型可控的 knowledgeBaseName 参数越权读取他人知识库；鉴权关闭态保持全库直通。
  */
 @Slf4j
 @Component
@@ -23,6 +27,7 @@ import java.util.stream.Collectors;
 public class KnowledgeBaseSearchTool {
 
     private final VectorStore vectorStore;
+    private final CurrentUserResolver currentUserResolver;
 
     /**
      * 在指定知识库中检索与问题最相关的资料片段。
@@ -30,15 +35,36 @@ public class KnowledgeBaseSearchTool {
     @Tool(description = "在企业知识库中检索与问题相关的资料片段。当需要引用内部文档/手册/资料回答问题时必须调用此工具")
     public String searchKnowledgeBase(
             @ToolParam(description = "要检索的问题关键词或完整问题") String query,
-            @ToolParam(description = "知识库名称，不确定时传 all 进行全库检索") String knowledgeBaseName) {
+            @ToolParam(description = "知识库名称；不确定时传 all 检索你有权限的全部知识库") String knowledgeBaseName) {
         log.info("[tool-call] searchKnowledgeBase query={}, kb={}", query, knowledgeBaseName);
         SearchRequest.Builder builder = SearchRequest.builder()
                 .query(query)
                 .topK(5)
                 .similarityThreshold(0.5);
-        if (knowledgeBaseName != null && !knowledgeBaseName.isBlank() && !"all".equalsIgnoreCase(knowledgeBaseName)) {
-            builder.filterExpression(new FilterExpressionBuilder()
-                    .eq("knowledge_base_name", knowledgeBaseName).build());
+        // "all"/空白 表示用户有权访问的全部知识库；指定名称时叠加归属校验，
+        // 防止模型被诱导传入他人知识库名读取其内容
+        boolean named = knowledgeBaseName != null && !knowledgeBaseName.isBlank()
+                && !"all".equalsIgnoreCase(knowledgeBaseName);
+        Long userId = currentUserResolver.currentUserId();
+        Long tenantId = currentUserResolver.currentTenantId();
+        FilterExpressionBuilder b = new FilterExpressionBuilder();
+        FilterExpressionBuilder.Op kbOp = named ? b.eq("knowledge_base_name", knowledgeBaseName) : null;
+        FilterExpressionBuilder.Op ownerOp = null;
+        if (userId != null) {
+            ownerOp = b.eq("user_id", userId);
+        } else if (tenantId != null) {
+            ownerOp = b.eq("tenant_id", tenantId);
+        }
+        Filter.Expression filter;
+        if (kbOp != null && ownerOp != null) {
+            filter = b.and(kbOp, ownerOp).build();
+        } else if (kbOp != null) {
+            filter = kbOp.build();
+        } else {
+            filter = ownerOp == null ? null : ownerOp.build();
+        }
+        if (filter != null) {
+            builder.filterExpression(filter);
         }
         List<Document> docs = vectorStore.similaritySearch(builder.build());
         if (docs == null || docs.isEmpty()) {

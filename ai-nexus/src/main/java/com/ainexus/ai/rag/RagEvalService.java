@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Service;
 
@@ -46,16 +47,29 @@ public class RagEvalService {
                              List<CaseResult> cases) {
     }
 
-    public EvalReport evaluate(String kbName, int topK, List<EvalCase> testCases) {
+    public EvalReport evaluate(String kbName, int topK, List<EvalCase> testCases, Long userId, Long tenantId) {
         List<CaseResult> results = new ArrayList<>();
         double scoreSum = 0, scoreMin = 1, scoreMax = 0;
         int scoreCount = 0;
         for (EvalCase testCase : testCases) {
             SearchRequest.Builder builder = SearchRequest.builder()
                     .query(testCase.question()).topK(topK).similarityThreshold(0.0);
-            if (kbName != null && !kbName.isBlank()) {
-                builder.filterExpression(new FilterExpressionBuilder()
-                        .eq("knowledge_base_name", kbName).build());
+            // 归属过滤：评估结果会回传片段原文，必须限定在调用方可访问范围（kbName + user/tenant）
+            FilterExpressionBuilder b = new FilterExpressionBuilder();
+            FilterExpressionBuilder.Op kbOp = kbName != null && !kbName.isBlank()
+                    ? b.eq("knowledge_base_name", kbName) : null;
+            FilterExpressionBuilder.Op ownerOp = null;
+            if (userId != null) {
+                ownerOp = b.eq("user_id", userId);
+            } else if (tenantId != null) {
+                ownerOp = b.eq("tenant_id", tenantId);
+            }
+            if (kbOp != null && ownerOp != null) {
+                builder.filterExpression(b.and(kbOp, ownerOp).build());
+            } else if (kbOp != null) {
+                builder.filterExpression(kbOp.build());
+            } else if (ownerOp != null) {
+                builder.filterExpression(ownerOp.build());
             }
             List<Document> docs = vectorStore.similaritySearch(builder.build());
             docs = docs == null ? List.of() : docs;

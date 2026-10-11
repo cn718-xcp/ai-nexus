@@ -26,7 +26,9 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,6 +44,9 @@ class KnowledgeBaseServiceTest {
 
     @Mock
     private KnowledgeDocumentRepository docRepository;
+
+    @Mock
+    private com.ainexus.domain.repository.KnowledgeChunkRepository chunkRepository;
 
     @Mock
     private VectorStore vectorStore;
@@ -65,7 +70,7 @@ class KnowledgeBaseServiceTest {
 
     @BeforeEach
     void setUp() throws InterruptedException {
-        service = new KnowledgeBaseService(kbRepository, docRepository, vectorStore, retrievalCache,
+        service = new KnowledgeBaseService(kbRepository, docRepository, chunkRepository, vectorStore, retrievalCache,
                 redissonClient, metrics, tenantQuotaService, documentIngestor,
                 // 显式事务模板：单测用 mock 事务管理器，execute 回调同步执行，语义与生产一致
                 new org.springframework.transaction.support.TransactionTemplate(
@@ -137,5 +142,53 @@ class KnowledgeBaseServiceTest {
         assertEquals(UUID.nameUUIDFromBytes((docUuid + ":1").getBytes(StandardCharsets.UTF_8)).toString(), ids.get(1));
         verify(docRepository).deleteAll(anyList());
         verify(kbRepository).delete(kb);
+    }
+
+    @Test
+    void shouldReindexVectorsWithNewDocUuidAndOwnershipMetadata() {
+        KnowledgeBase kb = KnowledgeBase.builder().id(1L).name("kb1").userId(7L).tenantId(9L).build();
+        String oldDocUuid = "11111111-2222-3333-4444-555555555555";
+        when(kbRepository.findById(1L)).thenReturn(Optional.of(kb));
+        when(docRepository.findByKbIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(
+                KnowledgeDocument.builder().kbId(1L).fileName("a.txt").docUuid(oldDocUuid).chunkCount(1).build()));
+        com.ainexus.domain.entity.KnowledgeChunk chunk = com.ainexus.domain.entity.KnowledgeChunk.builder()
+                .kbId(1L).docUuid(oldDocUuid).chunkIdx(0).content("旧片段").build();
+        when(chunkRepository.findByKbIdOrderByDocUuidAscChunkIdxAsc(1L)).thenReturn(List.of(chunk));
+        when(documentIngestor.metadata(any(), anyString(), anyString(), anyInt(), anyInt(), anyInt(), any()))
+                .thenReturn(java.util.Map.of("knowledge_base_name", "kb1", "user_id", 7L, "tenant_id", 9L));
+
+        KnowledgeBaseService.ReindexResult result = service.reindexVectors(1L, 7L, 9L);
+
+        // 1 个文档成功重建，0 跳过
+        assertEquals(1, result.docCount());
+        assertEquals(1, result.chunkCount());
+        assertEquals(0, result.skippedDocs());
+        // 旧向量被删除，新向量带归属元数据入库
+        verify(vectorStore).delete(anyList());
+        ArgumentCaptor<List<Document>> captor = ArgumentCaptor.forClass(List.class);
+        verify(vectorStore).add(captor.capture());
+        Document reindexed = captor.getValue().get(0);
+        assertEquals(7, ((Number) reindexed.getMetadata().get("user_id")).intValue());
+        assertEquals(9, ((Number) reindexed.getMetadata().get("tenant_id")).intValue());
+        // Chunk 备份行换绑到新 docUuid（与文档记录一致）
+        verify(chunkRepository).saveAll(anyList());
+        org.mockito.Mockito.verify(docRepository).save(any());
+        assertEquals(36, reindexed.getId().length());
+    }
+
+    @Test
+    void shouldSkipDocsWithoutChunkBackupsOnReindex() {
+        KnowledgeBase kb = KnowledgeBase.builder().id(1L).name("kb1").build();
+        when(kbRepository.findById(1L)).thenReturn(Optional.of(kb));
+        when(docRepository.findByKbIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(
+                KnowledgeDocument.builder().kbId(1L).fileName("empty.txt").docUuid("d-1").chunkCount(0).build()));
+        when(chunkRepository.findByKbIdOrderByDocUuidAscChunkIdxAsc(1L)).thenReturn(List.of());
+
+        KnowledgeBaseService.ReindexResult result = service.reindexVectors(1L, null, null);
+
+        assertEquals(0, result.docCount());
+        assertEquals(1, result.skippedDocs());
+        verify(vectorStore, org.mockito.Mockito.never()).add(anyList());
+        verify(vectorStore, org.mockito.Mockito.never()).delete(anyList());
     }
 }

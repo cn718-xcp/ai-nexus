@@ -38,11 +38,15 @@ public class AuthService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BizException(ErrorCode.BIZ_ERROR, "用户名已存在: " + request.getUsername());
         }
+        // 首个注册用户自动成为管理员（否则管理面无初始账号）；后续一律普通用户
+        boolean noAdminYet = userRepository.countByRole(SysUser.ROLE_ADMIN) == 0;
         SysUser user = userRepository.save(SysUser.builder()
                 .username(request.getUsername())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .role(noAdminYet ? SysUser.ROLE_ADMIN : SysUser.ROLE_USER)
                 .build());
-        log.info("[auth] user registered, id={}, username={}", user.getId(), user.getUsername());
+        log.info("[auth] user registered, id={}, username={}, role={}",
+                user.getId(), user.getUsername(), user.getRole());
         return user.getId();
     }
 
@@ -72,7 +76,7 @@ public class AuthService {
 
     private TokenResponse issueTokens(SysUser user) {
         return new TokenResponse(
-                jwtService.issueAccessToken(user.getUsername(), user.getId(), user.getTenantId()),
+                jwtService.issueAccessToken(user.getUsername(), user.getId(), user.getTenantId(), user.getRole()),
                 jwtService.issueRefreshToken(user.getUsername(), user.getId()),
                 "Bearer",
                 accessTokenMinutes * 60L);

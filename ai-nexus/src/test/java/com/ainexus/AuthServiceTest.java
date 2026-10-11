@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -85,6 +86,28 @@ class AuthServiceTest {
         register.setPassword("password123");
         when(userRepository.existsByUsername("alice")).thenReturn(true);
         assertThrows(BizException.class, () -> authService.register(register));
+    }
+
+    @Test
+    void shouldGrantAdminToFirstUserOnly() {
+        RegisterRequest first = new RegisterRequest();
+        first.setUsername("root");
+        first.setPassword("password123");
+        // 尚无管理员：首个注册用户自动成为 ADMIN
+        when(userRepository.countByRole(com.ainexus.domain.entity.SysUser.ROLE_ADMIN)).thenReturn(0L);
+        when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        authService.register(first);
+        verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(
+                u -> com.ainexus.domain.entity.SysUser.ROLE_ADMIN.equals(u.getRole())));
+
+        // 已有管理员：后续注册为普通用户
+        RegisterRequest second = new RegisterRequest();
+        second.setUsername("bob");
+        second.setPassword("password123");
+        when(userRepository.countByRole(com.ainexus.domain.entity.SysUser.ROLE_ADMIN)).thenReturn(1L);
+        authService.register(second);
+        verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(
+                u -> com.ainexus.domain.entity.SysUser.ROLE_USER.equals(u.getRole())));
     }
 
     @Test
